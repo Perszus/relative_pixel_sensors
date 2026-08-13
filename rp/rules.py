@@ -211,6 +211,34 @@ RULES: tuple[Rule, ...] = (
     R("docker-latest-tag", "docker", "content", ("Dockerfile", r"FROM .*:latest"),
       "R", 3.0, "base image pinned to :latest"),
 
+    # --- grammar: shape a regex cannot see -----------------------------------
+    # Counting the word "function" is a text question. Knowing one is 120 lines
+    # long, nested six deep, or takes nine arguments needs a parser.
+    R("long-functions", ANY, "longest_function", ("*", 120),
+      "R", 0.6, "functions over 120 lines", 10.0),
+    R("very-long-functions", ANY, "longest_function", ("*", 300),
+      "R", 2.0, "functions over 300 lines", 10.0),
+    R("deep-nesting", ANY, "deep_nesting", ("*", 6),
+      "R", 0.8, "files nested more than six deep", 8.0),
+    R("wide-signatures", "python-pkg", "wide_signatures", ("*.py", 8),
+      "R", 0.5, "functions taking more than eight arguments", 6.0),
+    R("mutable-default", "python-pkg", "py_smell", ("mutable_default",),
+      "R", 3.0, "mutable default argument — shared between calls", 12.0),
+    R("bare-except-ast", "python-pkg", "py_smell", ("bare_except",),
+      "R", 1.0, "bare except: swallows everything including exit", 8.0),
+    R("broad-except", "python-pkg", "py_smell", ("broad_except",),
+      "R", 0.3, "except Exception: hides unrelated failures", 6.0),
+    R("star-import", "python-pkg", "py_smell", ("star_import",),
+      "R", 1.0, "star import — the namespace is now unknowable", 6.0),
+    R("shadowed-builtin", "python-pkg", "py_smell", ("shadowed_builtin",),
+      "R", 1.0, "a builtin name is shadowed", 6.0),
+    R("global-statement", "python-pkg", "py_smell", ("global_statement",),
+      "R", 0.8, "global statements", 6.0),
+    R("dead-privates", "python-pkg", "unused_privates", ("*.py",),
+      "R", 0.4, "private functions defined and never called", 6.0),
+    R("untyped", "python-pkg", "untyped_share", ("*.py",),
+      "G", 0.0, "share of parameters without annotations"),
+
     # --- review and testing --------------------------------------------------
     R("reviewed", "reviewed", "exists", ("ester_analysis.md",), "G", 1.0,
       "has been reviewed"),

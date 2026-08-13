@@ -137,14 +137,30 @@ def bytes_over(root: str, pattern: str, limit: int) -> float:
     return float(n)
 
 
+# A line carrying this marker is invisible to every text and grammar probe.
+#
+# Not a convenience: it is structural. Every rule that detects a dangerous
+# pattern needs test fixtures containing that pattern, and rule definitions
+# themselves contain the patterns they search for — so a detector library
+# reliably detects itself. This system's own secrets rule fired on its own unit
+# test, which held a fake key written to prove the rule worked.
+#
+# One marker rather than a list of excluded paths, because the exclusion
+# belongs at the site that knows why, and a path list silently stops matching
+# when files move.
+ALLOW_MARKER = "rp:allow"
+
+
 def content(root: str, pattern: str, regex: str) -> float:
     """Lines matching a regex across matching files.
 
     Reads through git's own grep when possible, which is index-backed and does
-    not walk the tree.
+    not walk the tree. Lines carrying ALLOW_MARKER are excluded there too, via
+    grep's own --and --not, so the filter costs nothing.
     """
     if git(root, "rev-parse", "HEAD").strip():
-        out = run(("git", "-C", root, "grep", "-I", "-c", "-E", regex, "--", pattern))
+        out = run(("git", "-C", root, "grep", "-I", "-c", "-E", regex,
+                   "--and", "--not", "-e", ALLOW_MARKER, "--", pattern))
         total = 0.0
         for line in out.splitlines():
             _, _, n = line.rpartition(":")
@@ -158,7 +174,8 @@ def content(root: str, pattern: str, regex: str) -> float:
     for f in matches(root, pattern)[:400]:
         try:
             with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
-                total += sum(1 for line in fh if rx.search(line))
+                total += sum(1 for line in fh
+                             if rx.search(line) and ALLOW_MARKER not in line)
         except OSError:
             pass
     return total
@@ -193,6 +210,126 @@ def json_key(root: str, path: str, key: str) -> float:
         return float(node)
     except (TypeError, ValueError):
         return 0.0
+
+
+# --- grammar ----------------------------------------------------------------
+#
+# Every probe here can return UNKNOWN, and that is the point of the kind. A
+# parser that chokes on one syntax version returns nothing, and nothing is
+# indistinguishable from clean — so "could not read" is a third answer, never a
+# zero. Rules treat UNKNOWN as no finding, which is honest; what they must not
+# do is treat it as a pass.
+
+UNKNOWN = float("nan")
+
+
+def longest_function(root: str, pattern: str, threshold: int) -> float:
+    """Functions longer than `threshold` lines. Regex cannot see extent."""
+    from . import grammar
+
+    n = 0
+    seen = False
+    for rel in matches(root, pattern)[:300]:
+        full = os.path.join(root, rel)
+        kind = grammar.parse(full)
+        if not kind:
+            continue
+        try:
+            fns = (grammar.py_functions(full) if kind == "python"
+                   else grammar.braced_functions(full))
+        except grammar.ParseFailure:
+            continue
+        seen = True
+        n += sum(1 for f in fns if f[2] > threshold)
+    return float(n) if seen else UNKNOWN
+
+
+def deep_nesting(root: str, pattern: str, threshold: int) -> float:
+    """Files nested deeper than `threshold`. Complexity you feel while reading."""
+    from . import grammar
+
+    n = 0
+    seen = False
+    for rel in matches(root, pattern)[:300]:
+        full = os.path.join(root, rel)
+        if not grammar.parse(full):
+            continue
+        try:
+            depth = (grammar.py_max_depth(full) if grammar.parse(full) == "python"
+                     else grammar.max_indent_depth(full))
+        except grammar.ParseFailure:
+            continue
+        seen = True
+        n += depth > threshold
+    return float(n) if seen else UNKNOWN
+
+
+def py_smell(root: str, which: str) -> float:
+    """One named Python smell that needs a parser to see.
+
+    A mutable default argument is invisible to regex: it requires knowing the
+    default is a literal container AND that it belongs to a parameter.
+    """
+    from . import grammar
+
+    total = 0.0
+    seen = False
+    for rel in matches(root, "*.py")[:400]:
+        try:
+            counts = grammar.py_smells(os.path.join(root, rel))
+        except grammar.ParseFailure:
+            continue
+        seen = True
+        total += counts.get(which, 0)
+    return total if seen else UNKNOWN
+
+
+def wide_signatures(root: str, pattern: str, threshold: int) -> float:
+    """Functions taking more arguments than a reader can hold."""
+    from . import grammar
+
+    n = 0
+    seen = False
+    for rel in matches(root, pattern)[:300]:
+        full = os.path.join(root, rel)
+        if grammar.parse(full) != "python":
+            continue
+        try:
+            fns = grammar.py_functions(full)
+        except grammar.ParseFailure:
+            continue
+        seen = True
+        n += sum(1 for f in fns if f[3] > threshold)
+    return float(n) if seen else UNKNOWN
+
+
+def unused_privates(root: str, pattern: str = "*.py") -> float:
+    from . import grammar
+
+    total = 0.0
+    seen = False
+    for rel in matches(root, pattern)[:400]:
+        try:
+            total += grammar.py_unused_privates(os.path.join(root, rel))
+        except grammar.ParseFailure:
+            continue
+        seen = True
+    return total if seen else UNKNOWN
+
+
+def untyped_share(root: str, pattern: str = "*.py") -> float:
+    """Share of Python parameters with no annotation, as a percentage."""
+    from . import grammar
+
+    covered: list[float] = []
+    for rel in matches(root, pattern)[:400]:
+        try:
+            covered.append(grammar.py_annotation_coverage(os.path.join(root, rel)))
+        except grammar.ParseFailure:
+            continue
+    if not covered:
+        return UNKNOWN
+    return (1.0 - sum(covered) / len(covered)) * 100.0
 
 
 # --- machine ----------------------------------------------------------------
@@ -305,6 +442,13 @@ PROBES = {
     "path_exists": path_exists,
     "path_age_days": path_age_days,
     "dir_size_mb": dir_size_mb,
+    # grammar
+    "longest_function": longest_function,
+    "deep_nesting": deep_nesting,
+    "py_smell": py_smell,
+    "wide_signatures": wide_signatures,
+    "unused_privates": unused_privates,
+    "untyped_share": untyped_share,
 }
 
 

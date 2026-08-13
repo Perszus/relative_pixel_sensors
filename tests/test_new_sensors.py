@@ -44,6 +44,7 @@ def test_entropy_separates_random_from_structured():
 
 
 def test_secret_regex_matches_a_real_literal():
+    # rp:allow secret-literal — a fixture for the detector, not a credential.
     m = sensors._SECRET_RE.search('api_key = "sk_live_9Fq2XbTn4vKpZ7wLmR3d"')
     assert m and m.group(2) == "sk_live_9Fq2XbTn4vKpZ7wLmR3d"
 

@@ -133,9 +133,12 @@ def main() -> int:
     # collected minutes ago against live `git status` produces a mismatch that
     # says nothing about the field -- the first run of this check "failed"
     # because a test file had been created between collection and audit.
+    # Thirty seconds, not two minutes. Editing one file between collecting and
+    # auditing is enough to make this disagree, and it did — a race the audit
+    # reported as the field being wrong.
     age = time.time() - view.get("collected_at", 0)
     m = re.search(r"(\d+) uncommitted files in ([^\n]+)", brief)
-    if m and age > 120:
+    if m and age > 30:
         check(SKIP, f"uncommitted files — field is {age/60:.0f} min old and this "
                     f"claim changes on every save; re-run collect.py to check it")
     elif m:
@@ -190,7 +193,17 @@ def main() -> int:
                         open_block = "[OPEN]" in s
                     elif s.startswith("area:") and open_block:
                         area = s[5:].strip().split(":")[0].strip()
-                        if sub and area.startswith(sub):
+                        # An empty `sub` means the region IS the project, and
+                        # every finding in the repo belongs to it. The check
+                        # previously required a prefix match, so a project-level
+                        # region resolved zero findings and read as WRONG.
+                        # `<file:line or module>` is the format template in the
+                        # report's own header, not a finding. The sensor skips
+                        # it; the audit did not, and reported the documentation
+                        # as a dangling reference.
+                        if area.startswith("<"):
+                            continue
+                        if area and (not sub or area.startswith(sub)):
                             exists = os.path.isfile(os.path.join(repo, area))
                             hits += 1 if exists else 0
                             if not exists:
