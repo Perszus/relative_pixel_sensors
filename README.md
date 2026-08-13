@@ -156,11 +156,22 @@ measures.
 
 Honest about what is and is not established.
 
+**Where it is:** eleven probe kinds, 67 rules, 16 recognizers, 190 tests. On an
+eighteen-repository fleet a warm pass takes a few seconds and the resident field
+is a couple of hundred kilobytes.
+
 **Tested:** the mechanism. Lazy decay is exact to 2.7e-11, ingest is O(1) in
-history, reads are O(regions), idle cost is structurally zero, and resident
-state is a couple of hundred kilobytes. `python run_experiments.py` runs the
-benchmarks; `python -m pytest` runs the invariant suite; `audit.py` re-derives
-the field's claims by a different code path and has caught two real bugs.
+history, reads are O(regions), idle cost is structurally zero.
+`python run_experiments.py` runs the benchmarks; `python -m pytest` runs the
+invariant suite; `audit.py` re-derives the field's claims by a different code
+path and has caught several real bugs, including two of its own.
+
+**Found so far, on the fleet it was built against:** four volumes low on space
+and a package cache nothing was watching; sixty-three files silently diverged
+between packaging forks of the same program; dependencies with published
+advisories in two projects; a hidden coupling between files on opposite sides of
+a JNI boundary that no import graph can see. It has also published one
+confidently wrong finding, which is why `explain.py` exists.
 
 **Not established:** that the field ranks better than "what changed most
 recently". That needs a replay over history longer than the author's own fleet
