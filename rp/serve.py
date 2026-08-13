@@ -50,17 +50,9 @@ _ARROW = {
 
 
 def _mark(ch, now: float) -> str:
-    """Direction symbol, with standing judgments overriding the temporal read.
-
-    `profile()` describes activity, and activity is the wrong axis when the
-    reason a region is loud is that something is unresolved there. A region with
-    open findings and no recent commits is temporally 'cooling' and practically
-    abandoned -- reporting the former hides the latter, which is the single
-    misread this whole layer exists to prevent (2.0 sec.7, red-without-blue).
-    """
-    if ch.level > 0.0 and ch.level >= ch.read(now)[1]:
-        return _ARROW["standing"]
-    return _ARROW[ch.profile(now)]
+    """Direction symbol. The standing override lives in `effective_profile`, so
+    every consumer of the field agrees about what a region is doing."""
+    return _ARROW[ch.effective_profile(now)]
 
 
 def layer1(field: Field, now: float | None = None, limit: int = 12) -> str:
@@ -104,7 +96,7 @@ def layer2(field: Field, group: str, now: float | None = None) -> dict:
             continue
         entry = {
             "magnitude": round(mag, 3),
-            "profile": ch.profile(now),
+            "profile": ch.effective_profile(now),
             "concentration": round(ch.concentration(now), 3),
             "pointers": [(k, round(v, 2)) for k, v in ch.pointers(now)],
             "events": ch.total_events,
@@ -160,7 +152,7 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
             # code is damaged code.
             "fan_in": fan_in.get(name, 0),
             "depends": depends.get(name, 0),
-            "profile": r.profile(now),
+            "profile": r.effective_profile(now),
             "sources": {**r.standing_by_source(), **gr.standing_by_source(),
                         **b.standing_by_source()},
             "why": _why(r, gr, b),
@@ -469,7 +461,7 @@ def grid(field: Field, now: float | None = None) -> str:
         g = field.groups[name]
         cells = "".join(_band(g.channels[c].magnitude(now), c) for c in CHANNELS)
         r = g.channels["R"]
-        prof = r.profile(now)
+        prof = r.effective_profile(now)
         note = f"{prof} +{r.level:.0f} standing" if r.level > 0 else prof
         lines.append(f"  {cells}  {name:<28} {note}")
     return "\n".join(lines) if lines else "  (all cold)"

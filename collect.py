@@ -440,17 +440,29 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
         # longer exists is worse than none: the top pointer for orobos' java
         # region outranked the live file while pointing at a package that had
         # been renamed away. Historically true, and useless as an instruction.
-        pointers = [p for p in (r.pointers(now, 8) or b.pointers(now, 8))
-                    if _still_there(name, p[0], live)][:3]
-        if not pointers:
-            keys = r.standing_keys() or b.standing_keys()
-            pointers = [kv for kv in sorted(keys.items(), key=lambda kv: -kv[1])
-                        if _still_there(name, kv[0], live)][:3]
+        #
+        # Standing keys come first when standing dominates. A region whose
+        # pressure is entirely unresolved findings was pointing at decayed
+        # activity keys instead -- three filenames with weight 0.0, when the
+        # three files that actually carry the findings were sitting right there.
+        candidates: list[tuple[str, float]] = []
+        if r.level > 0.0 and r.level >= r.read(now)[1]:
+            candidates = sorted(r.standing_keys().items(), key=lambda kv: -kv[1])
+        candidates += r.pointers(now, 8) or b.pointers(now, 8)
+        seen: set[str] = set()
+        pointers = []
+        for key, weight in candidates:
+            if key in seen or not _still_there(name, key, live):
+                continue
+            seen.add(key)
+            pointers.append((key, weight))
+            if len(pointers) == 3:
+                break
         entry = {
             "name": name,
             "rgb": [round(r.magnitude(now), 3), round(gr.magnitude(now), 3),
                     round(b.magnitude(now), 3)],
-            "profile": r.profile(now),
+            "profile": r.effective_profile(now),
             "standing": round(r.level, 2),
             "sources": standing,
             "concentration": round(r.concentration(now), 3),
@@ -469,6 +481,7 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
                 "tests": m.get("tests"),
                 "kind": m.get("kind"),
                 "reviewed": m.get("reviewed"),
+                "entries": m.get("entries", []),
                 "last_commit": sensors.age_desc(m.get("last_commit")),
             }
         groups.append(entry)

@@ -214,6 +214,22 @@ class Channel:
     #     workload look like it is warming.
     WORKING = (1, 2, 3)
 
+    def effective_profile(self, now: float) -> str:
+        """The reading a consumer should show.
+
+        `profile` describes activity, which is the wrong axis when the reason a
+        region is loud is that something is unresolved there. A region with open
+        findings and no recent commits is temporally cooling and practically
+        abandoned, and reporting the first hides the second.
+
+        This exists so every consumer agrees. The serving layer applied the
+        override for its own one-line marker while the stored profile did not,
+        so the Sentinel pane displayed COOLING directly above "UNRESOLVED 13".
+        """
+        if self.level > 0.0 and self.level >= self.read(now)[1]:
+            return "standing"
+        return self.profile(now)
+
     def profile(self, now: float) -> str:
         """Temporal shape, read off the ring gradient.
 
