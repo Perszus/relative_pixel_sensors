@@ -160,6 +160,7 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
             "profile": r.profile(now),
             "sources": {**r.standing_by_source(), **gr.standing_by_source(),
                         **b.standing_by_source()},
+            "keys": {**r.level_keys, **gr.level_keys, **b.level_keys},
             "why": _why(r, gr, b),
         })
 
@@ -187,6 +188,20 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
     out.append(f"{stamp} · {len(meta)} projects · {len(rows)} regions "
                f"· {len(stalled)} stalled · {len(working)} in hand "
                f"· {len(quiet)} quiet")
+
+    # --- reflexes, before anything is ranked --------------------------------
+    #
+    # A reflex does not go to the brain. These are reported first, in full, in
+    # no order, and with no magnitude attached, because a committed credential
+    # is not a larger version of a long function — it is a different kind of
+    # statement, and putting it in a ranking invites it to be compared. The
+    # section is absent when nothing fires, which is almost always.
+    fired = _reflexes(rows, set((shapes or {}).get("reflex_sources", ())))
+    if fired:
+        out.append("")
+        out.append("!! REFLEX  — unambiguous; act before reading further")
+        for subject, phrase in fired:
+            out.append(f"  !! {subject}: {phrase}")
 
     def block(title: str, note: str, items: list[dict]) -> None:
         out.append("")
@@ -441,6 +456,31 @@ def _constellations(rows: list[dict], meta: dict, shapes: dict) -> list[str]:
             out.append(f"{top_n:.0f} of {total_debt:.0f} debt markers fleet-wide "
                        f"are in {top_name}")
 
+    return out
+
+
+def _reflexes(rows: list[dict], reflex_sources: set[str]) -> list[tuple[str, str]]:
+    """Every nociceptor finding in the field, with the words it carries.
+
+    The set of reflex sources is supplied rather than looked up, because
+    machine reflexes are synthesised per volume — `disk-y-low` exists only
+    because a Y: drive does — so their ids can never appear in the static rule
+    table. Flagging them on the finding and collecting the set at absorption
+    time handles both origins the same way.
+
+    Deliberately not sorted by magnitude. Ordering them by size would be a
+    ranking, and the point of the tier is that these are not ranked against
+    anything: two committed credentials are not "worse" than one in any sense
+    that changes what a reader does next.
+    """
+    out: list[tuple[str, str]] = []
+    for row in rows:
+        for source in row["sources"]:
+            if source not in reflex_sources:
+                continue
+            phrases = row.get("keys", {}).get(source, {})
+            out.append((row["name"],
+                        next(iter(phrases), source.replace("rule:", ""))))
     return out
 
 

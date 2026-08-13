@@ -453,6 +453,11 @@ def collect(quiet: bool = False) -> Field:
     depends: dict[str, int] = {}
     coupled: list[tuple[int, str, str]] = []
     rule_findings: dict[tuple[str, str], dict] = {}
+    # Sources whose findings arc at the spine. Collected here rather than looked
+    # up, because machine reflexes are synthesised per volume — `disk-y-low`
+    # exists only because a Y: drive does — and can never appear in the static
+    # rule table.
+    reflex_sources: set[str] = set()
     kinds_by_label: dict[str, list] = {}
     # The work is almost entirely waiting on git subprocesses, so the useful
     # width is the repo count, not the core count. Capped at 8 while the fleet
@@ -491,6 +496,8 @@ def collect(quiet: bool = False) -> Field:
             for f in res.get("rules", []):
                 rule_findings.setdefault((f.channel, f.rule), {})[f.subject] = \
                     (f.value, {f.says: f.value})
+                if f.reflex:
+                    reflex_sources.add(f"rule:{f.rule}")
 
     # Project-scope health is true of every region inside the project: if the
     # repo has CI, CI covers this directory too. Without propagating it, 34 of
@@ -525,6 +532,8 @@ def collect(quiet: bool = False) -> Field:
     for f in rules.machine():
         rule_findings.setdefault((f.channel, f.rule), {})[f.subject] = \
             (f.value, {f.says: f.value})
+        if f.reflex:
+            reflex_sources.add(f"rule:{f.rule}")
 
     # Rule sources are namespaced so they cannot collide with the hand-written
     # sensors, and so `sources` in the view reads as a rule id.
@@ -546,7 +555,8 @@ def collect(quiet: bool = False) -> Field:
     coupled.sort(reverse=True)
     forks = _forks(live)
     shapes = {"fan_in": fan_in, "depends": depends, "coupled": coupled[:5],
-              "forks": forks, "divergence": _divergence(live, forks)}
+              "forks": forks, "divergence": _divergence(live, forks),
+              "reflex_sources": sorted(reflex_sources)}
 
     size = field.save(FIELD)
     write_view(field, VIEW, meta, sizes, live, shapes)
@@ -642,6 +652,14 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
             # one, and how many it imports from.
             "fan_in": (shapes or {}).get("fan_in", {}).get(name, 0),
             "depends": (shapes or {}).get("depends", {}).get(name, 0),
+            # Nociceptor findings, in the words they carry. Kept separate from
+            # `sources` so a viewer cannot accidentally render an emergency as
+            # one more weighted row.
+            "reflexes": [
+                next(iter(r.level_keys.get(s, {})), s.replace("rule:", ""))
+                for s in sorted(r.standing_by_source())
+                if s in set((shapes or {}).get("reflex_sources", ()))
+            ],
         }
         if name in meta:
             m = meta[name]

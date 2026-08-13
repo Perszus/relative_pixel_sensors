@@ -114,6 +114,16 @@ class Rule:
     # correctly, and must be distinguishable from one whose probe is broken —
     # the two look identical from the outside and mean opposite things.
     needs: str = ""
+    # Nociception. A reflex does not go to the brain: it arcs at the spine,
+    # because the response is unambiguous and the delay is the danger.
+    #
+    # Reflexes are reported first and UNRANKED. A committed credential and a
+    # three-hundred-line function are both "pressure" to a magnitude-only
+    # field, and they are not remotely the same instruction — ranking them
+    # together means either burying an emergency or promoting every finding to
+    # one. Reserve this for findings no reader would weigh against anything
+    # else before acting.
+    reflex: bool = False
 
     def evaluate(self, root: str) -> float:
         fn = PROBES.get(self.probe)
@@ -132,6 +142,16 @@ def R(id, on, probe, args, chan, w, says, cap=24.0):
     return Rule(id, on, probe, tuple(args), chan, w, says, cap)
 
 
+def RX(id, on, probe, args, chan, w, says, cap=24.0):
+    """A nociceptor. Same shape as R, reported first and unranked.
+
+    Kept deliberately few. A reflex that fires routinely is not a reflex, and
+    five of these are silent across all eighteen subjects — which is the
+    behaviour that makes them worth reading the moment they are not.
+    """
+    return Rule(id, on, probe, tuple(args), chan, w, says, cap, reflex=True)
+
+
 # The table. Each line is a sensor.
 #
 # Weights are deliberately small and capped: with many rules the risk is not
@@ -139,18 +159,18 @@ def R(id, on, probe, args, chan, w, says, cap=24.0):
 # without being able to dominate the channel it writes to.
 RULES: tuple[Rule, ...] = (
     # --- hygiene that applies to anything on disk ---------------------------
-    R("secret-literal", ANY, "content",
+    RX("secret-literal", ANY, "content",
       ("*", r"(api[_-]?key|secret|passwd|password|private[_-]?key)[\"' ]*[:=][\"' ]*[A-Za-z0-9/+=_-]{24,}"),
       "R", 6.0, "credential-shaped literal in tracked source", 24.0),
-    R("conflict-markers", ANY, "content", ("*", r"^<{7} |^>{7} "),
+    RX("conflict-markers", ANY, "content", ("*", r"^<{7} |^>{7} "),
       "R", 6.0, "committed merge-conflict markers"),
     R("debt-markers", ANY, "content", ("*", r"TODO|FIXME|HACK|XXX"),
       "R", 0.25, "debt markers left in source", 12.0),
     R("oversized-blobs", ANY, "bytes_over", ("**/*", 2_000_000),
       "R", 1.0, "tracked files over 2 MB", 10.0),
-    R("env-file-committed", ANY, "exists", ("**/.env",),
+    RX("env-file-committed", ANY, "exists", ("**/.env",),
       "R", 6.0, "a .env file is committed"),
-    R("keystore-committed", ANY, "count", ("**/*.jks",),
+    RX("keystore-committed", ANY, "count", ("**/*.jks",),
       "R", 8.0, "a signing keystore is committed"),
     R("readme", ANY, "exists", ("README.md",), "G", 1.0, "has a README"),
     R("licence", ANY, "exists", ("LICENSE*",), "G", 1.0, "has a licence"),
@@ -208,7 +228,7 @@ RULES: tuple[Rule, ...] = (
       "R", 0.1, "console.log left in source", 5.0),
 
     # --- android -------------------------------------------------------------
-    R("android-debuggable", "android-app", "content",
+    RX("android-debuggable", "android-app", "content",
       ("**/AndroidManifest.xml", r'android:debuggable="true"'),
       "R", 8.0, "debuggable flag set in a manifest"),
     R("android-cleartext", "android-app", "content",
@@ -365,8 +385,12 @@ def machine() -> list[Finding]:
 
     out: list[Finding] = []
 
-    def say(rule: str, weight: float, words: str) -> None:
-        out.append(Finding(rule, "machine", "machine", "R", weight, words))
+    def say(rule: str, weight: float, words: str, reflex: bool = False) -> None:
+        out.append(Finding(rule, "machine", "machine", "R", weight, words, reflex))
+
+    # A volume this close to full stops being a gradient and becomes an event:
+    # writes start failing, and nobody weighs that against a long function.
+    CRITICAL_FREE_PCT = 3.0
 
     # --- storage. Every fixed volume, not a hardcoded pair.
     for letter in string.ascii_uppercase:
@@ -378,7 +402,8 @@ def machine() -> list[Finding]:
             # Steep: 11% free is a note and 1% free is an emergency, and a
             # linear scale reports them as nearly the same thing.
             say(f"disk-{letter.lower()}-low", min((12.0 - free) ** 2 / 5.0, 24.0),
-                f"{letter}: is {free:.1f}% free")
+                f"{letter}: is {free:.1f}% free",
+                reflex=free < CRITICAL_FREE_PCT)
 
     for label, gb in ambient.largest_caches(ambient.KNOWN_CACHES, 20.0):
         say("cache-large", min(gb / 20.0, 6.0),
@@ -435,6 +460,7 @@ class Finding:
     channel: str
     value: float
     says: str
+    reflex: bool = False
 
 
 def evaluate(subject: str, root: str, kinds: set[str]) -> list[Finding]:
@@ -448,8 +474,14 @@ def evaluate(subject: str, root: str, kinds: set[str]) -> list[Finding]:
         value = rule.evaluate(root)
         if value <= 0.0:
             continue
-        out.append(Finding(rule.id, subject, rule.on, rule.chan, value, rule.says))
+        out.append(Finding(rule.id, subject, rule.on, rule.chan, value,
+                           rule.says, rule.reflex))
     return out
+
+
+def reflexes() -> tuple[str, ...]:
+    """Every rule id that arcs at the spine."""
+    return tuple(r.id for r in (*RULES, *MACHINE_RULES) if r.reflex)
 
 
 def rule_count() -> tuple[int, int]:
