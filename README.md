@@ -85,8 +85,34 @@ python collect.py --read       read without absorbing
 python collect.py --sensors    the sensor spec sheet
 python collect.py --rediscover re-scan for subjects
 python ruleset.py              the rule table
+python ruleset.py --live       which rules fire, and why the silent ones are silent
 python audit.py                the field's claims vs independently derived facts
+python explain.py <subject>    why the field says what it says
+python explain.py --rule <id>  one rule, re-evaluated everywhere it applies
+python rpwrap.py test -- <cmd> record what a command did, so the field can read it
+python -m rp.remote --refresh  fetch the advisory snapshot
 ```
+
+### Checking a finding
+
+Every finding can account for itself. `explain.py` names the rule, the probe it
+called, what that probe returns **when run again right now**, and the one thing
+that would falsify it:
+
+```
+huts
+  R  magnitude 45.48
+         8.00  rust-unwrap
+                probe    content('*.rs', '\.unwrap\(\)')
+                says     unwrap() calls that can panic
+                now      335  (x weight 0.05, capped at 8)
+                false if no line matched /\.unwrap\(\)/ in `*.rs`
+```
+
+This exists because a confidently wrong reading is only survivable if checking
+it is cheap. One was published here — a passing test suite reported as broken,
+on the strength of a stray cache — and establishing the truth took twenty
+minutes of manual digging because nothing pointed at the evidence underneath.
 
 Point it somewhere by setting `RP_ROOTS` (path-separated) or writing
 `roots.json`:
@@ -133,7 +159,7 @@ Honest about what is and is not established.
 **Tested:** the mechanism. Lazy decay is exact to 2.7e-11, ingest is O(1) in
 history, reads are O(regions), idle cost is structurally zero, and resident
 state is a couple of hundred kilobytes. `python run_experiments.py` runs the
-benchmarks; `python -m pytest` runs 112 invariant tests; `audit.py` re-derives
+benchmarks; `python -m pytest` runs the invariant suite; `audit.py` re-derives
 the field's claims by a different code path and has caught two real bugs.
 
 **Not established:** that the field ranks better than "what changed most
