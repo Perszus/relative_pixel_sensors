@@ -20,9 +20,12 @@ DAY = 86400.0
 
 
 def _runs(tmp_path, records, monkeypatch, head="abc"):
-    d = tmp_path / ".rp"
-    d.mkdir(exist_ok=True)
-    (d / "runs.json").write_text(json.dumps(records), encoding="utf-8")
+    # Written through the same path function the writer uses, so the test
+    # cannot pass against a location the reader has stopped looking at.
+    path = verdict.receipts_path(str(tmp_path))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(records, fh)
     verdict.clear_caches()
     monkeypatch.setattr(verdict, "_head_sha", lambda root: head)
     return str(tmp_path)

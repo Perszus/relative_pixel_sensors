@@ -28,5 +28,5 @@ results.md
 cachesizes.json
 
 # Receipts from rpwrap, and the advisory snapshot. Local evidence, not source.
-.rp/
+runs/
 advisories.json

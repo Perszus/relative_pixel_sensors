@@ -32,8 +32,9 @@ import subprocess
 import sys
 import time
 
-RECORD_DIR = ".rp"
-RECORD_FILE = "runs.json"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rp.verdict import receipts_path  # noqa: E402  — the reader owns the path
+
 KEEP = 20
 
 
@@ -58,7 +59,7 @@ def _head(root: str) -> str:
 
 
 def record(root: str, label: str, code: int, seconds: float, tail: str) -> None:
-    path = os.path.join(root, RECORD_DIR, RECORD_FILE)
+    path = receipts_path(root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         with open(path, encoding="utf-8") as fh:

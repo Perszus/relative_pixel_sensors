@@ -325,7 +325,12 @@ RULES: tuple[Rule, ...] = (
          needs="a lint run through rpwrap.py"),
 
     # --- remote, read from a snapshot rather than fetched --------------------
-    Rule("vulnerable-deps", "python-pkg", "vulnerable_deps", (0,), "R", 5.0,
+    # Scoped to ANY, not to python-pkg. The probe reads requirements files and
+    # returns nothing when there are none, so it gates itself — while scoping
+    # it to the recognizer hid three affected packages in a project that
+    # declares dependencies but has no pyproject.toml. A rule that self-gates
+    # should not also be gated from outside; the second gate only subtracts.
+    Rule("vulnerable-deps", ANY, "vulnerable_deps", (0,), "R", 5.0,
          "declared dependencies with published advisories", cap=20.0,
          needs="python -m rp.remote --refresh"),
 )

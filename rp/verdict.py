@@ -147,6 +147,24 @@ def recent_log_errors(root: str, window_days: float = LOG_WINDOW_DAYS) -> tuple[
 
 # --- recorded runs (the EXECUTION kind, read as a verdict) -------------------
 
+# Receipts live with the tool, keyed by repository, never inside it: writing
+# them into the wrapped project left untracked files that this system's own
+# `wip` sensor would count as pressure. Defined here and imported by rpwrap.py
+# so the writer and the reader cannot drift — they did, and a test caught it
+# within a minute.
+STORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "runs")
+
+
+def receipts_path(root: str) -> str:
+    """This repository's receipt file. Hashed so two projects with the same
+    folder name cannot collide, named so the store stays human-readable."""
+    import hashlib
+
+    full = os.path.abspath(root).replace("\\", "/").rstrip("/")
+    tag = hashlib.blake2b(full.encode(), digest_size=6).hexdigest()
+    return os.path.join(STORE, f"{os.path.basename(full)}-{tag}.json")
+
 
 @lru_cache(maxsize=256)
 def runs(root: str) -> tuple[dict, ...]:
@@ -157,7 +175,7 @@ def runs(root: str) -> tuple[dict, ...]:
     this reads it — which keeps the probe a cheap local read and the kind
     parasitic.
     """
-    path = os.path.join(root, ".rp", "runs.json")
+    path = receipts_path(root)
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
