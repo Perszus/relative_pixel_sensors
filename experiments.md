@@ -1,3 +1,22 @@
+> **Status, 2026-08-13.** Stage 1 ran and passed; the mechanism is proven and
+> the M-series lives in `run_experiments.py`. Stage 2 has **never run** and is
+> blocked on data, not effort — a replay needs a cut date with training history
+> before it and a scoring window after, and this fleet's repositories are mostly
+> younger than that. It is still the gate the whole idea stands or falls on.
+>
+> Stage 3 was written when the intended reader was an agent. That framing was
+> dropped: the tool has no privileged consumer, and those experiments are kept
+> only to keep consumer questions out of Stages 1 and 2.
+>
+> Two things this document does not describe, because they did not exist when it
+> was written: the rules architecture (see [`PROBES.md`](PROBES.md)) and the
+> verification tooling that grew out of actually using the thing — `audit.py`
+> re-derives claims by an independent path, `explain.py` makes any single
+> finding checkable, `ruleset.py --live` distinguishes a silent rule from a
+> broken one. Between them they have caught more real defects than the M-series
+> did, which is worth noting: the experiments proved the mechanism, and the
+> tooling caught the mistakes.
+
 # Relativity Pixels — Experiments
 
 *Companion to `Relativity Pixels 2.0.md`. Nothing here has been run.*

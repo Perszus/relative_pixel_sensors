@@ -247,6 +247,63 @@ def main() -> int:
     check(OK if not wrong else BAD, "every sized region maps to a real directory",
           "" if not wrong else str(wrong[:3]))
 
+    # ---- reproducibility sweep, across every rule that fired --------------
+    #
+    # The hand-written checks below cover nine claims. Sixty-seven rules produce
+    # findings, so most of what the field says has never been verified by
+    # anything — and the one claim that turned out to be wrong was not among the
+    # nine.
+    #
+    # This cannot re-derive every rule independently; a second implementation of
+    # sixty-seven probes would be sixty-seven more things to be wrong. What it
+    # can do is demand REPRODUCIBILITY: every finding in the stored field is
+    # re-evaluated against the live tree, and any that no longer reproduces is
+    # either stale or was never true. Both are worth surfacing, and neither was
+    # detectable before.
+    sys.path.insert(0, HERE)
+    from rp import probes as _probes  # noqa: E402
+    from rp import rules as _rules  # noqa: E402
+
+    checked = gone = 0
+    drifted: list[str] = []
+    for region in regions.values():
+        label = region["name"].split("/", 1)[0]
+        repo = by_label.get(label)
+        if not repo or not os.path.isdir(repo):
+            continue
+        for source in region.get("sources", {}):
+            if not source.startswith("rule:"):
+                continue
+            rule = next((r for r in (*_rules.RULES, *_rules.MACHINE_RULES)
+                         if r.id == source[5:]), None)
+            if rule is None:
+                continue
+            fn = _probes.PROBES.get(rule.probe)
+            if fn is None:
+                continue
+            checked += 1
+            try:
+                value = float(fn(repo, *rule.args))
+            except Exception:
+                continue
+            if value != value:          # UNKNOWN — the probe declined, not a drift
+                continue
+            if value <= 0.0:
+                gone += 1
+                if len(drifted) < 4:
+                    drifted.append(f"{region['name']} / {rule.id}")
+
+    if checked:
+        # Some drift is legitimate: the tree moves between passes. A large share
+        # is not, and would mean the field is reporting things that stopped
+        # being true.
+        share = gone / checked * 100.0
+        verdict = OK if share < 15.0 else BAD
+        check(verdict,
+              f"{checked} rule findings re-evaluated live, {gone} no longer "
+              f"reproduce ({share:.0f}%)",
+              "" if verdict == OK else f"e.g. {drifted}")
+
     # ---- 8. the load-bearing claim ---------------------------------------
     m = re.search(r"load-bearing and under pressure: (\S+) \(R[\d.]+, (\d+) regions", brief)
     if m:

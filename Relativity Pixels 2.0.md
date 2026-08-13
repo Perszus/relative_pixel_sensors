@@ -1,3 +1,17 @@
+> **Superseded in part, 2026-08-13.** This document designed the field — decay,
+> rings, channels, routing, the two serving layers — and that half is still what
+> the code does. Its **sensor** design is not. §4 describes six hand-written
+> sensors and a seven-question spec sheet for authoring more; the implementation
+> replaced that with recognizers, probes and declarative rules, which is a
+> different architecture reached for reasons §4 does not contain.
+>
+> Read [`PROBES.md`](PROBES.md) for how sensing actually works, and
+> [`README.md`](README.md) for what the thing is. This is kept because the
+> reasoning behind the *field* is still load-bearing and nothing else records
+> it — not because it describes the current system.
+>
+> §6.3 and §6.4 carry measured corrections and are current.
+
 # Relativity Pixels 2.0
 
 *Working reference. Supersedes `Relativity Pixels.md` (the 1.0 draft), which remains
@@ -144,6 +158,25 @@ problem wearing a new hat.
 ---
 
 ## 4. Sensors
+
+> **This section is superseded.** What follows is the sensor design as it stood
+> before the rules architecture — hand-written sensors, authored one function at
+> a time against a spec sheet. It was replaced because that model does not scale
+> past a couple of dozen sensors and ties every one of them to a specific
+> toolchain: thirteen of the eighteen it produced were git wearing different
+> hats.
+>
+> What survives it, and is still enforced in code:
+>
+> - the three statement types — event, standing, state — and that collapsing
+>   them kills the tool
+> - that a sensor must report its whole picture each pass, because clearing is
+>   the half that gets forgotten
+> - that a denominator is needed or the ranking is partly a ranking of size
+>
+> What replaced it: recognizers identify what a subject *is*, probes extract one
+> value each, and rules are data that latch a probe onto a recognized kind. See
+> [`PROBES.md`](PROBES.md).
 
 ### 4.1 Where sensors can exist
 
