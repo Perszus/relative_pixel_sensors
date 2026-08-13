@@ -297,6 +297,15 @@ def _constellations(rows: list[dict], meta: dict, shapes: dict) -> list[str]:
                    f"{listed} — packaging forks, so their findings are the same "
                    f"findings counted more than once")
 
+    # --- and where those forks have actually drifted.
+    #     Names say they are copies; only content says which copies stopped
+    #     agreeing, and those are where a fix applied to one and not the other
+    #     will hide.
+    for a, b, shared, drift, examples in shapes.get("divergence", [])[:2]:
+        shown = ", ".join(examples[:3])
+        out.append(f"{a} and {b} share {shared} filenames but {drift} now differ "
+                   f"in content: {shown}{' …' if drift > 3 else ''}")
+
     # --- load-bearing and damaged.
     #     The pairing is the point. Pressure ranks where the damage is; fan-in
     #     says how much of the system is standing on it. A leaf nobody imports

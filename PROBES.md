@@ -289,15 +289,20 @@ check* — the second is not a pass.
 |---|---|---|---|---|
 | stat | ✓ | ✓ | | ✓ |
 | text | ✓ | ✓ | | ✓ |
-| grammar | ✓ | ✓ | | |
-| history | ✓ | ✓ | ✓ | partly |
-| graph | ✓ | ✓ | | partly |
+| grammar | ✓ | ✓ | | ✓ |
+| history | ✓ | ✓ | ✓ | ✓ |
+| graph | ✓ | ✓ | | ✓ |
 | verdict | ✓✓ | ✓ | | partly |
-| expectation | ✓ | ✓ | | |
+| expectation | ✓ | ✓ | | ✓ |
 | ambient | ✓ | ✗ | | partly |
-| identity | ✓ | ✓ | | |
+| identity | ✓ | ✓ | | ✓ |
 | execution | ✗ | ✗ | ✓ | |
 | remote | ✗ | ✗ | | |
+
+Seven built. `verdict` reads test caches and review ledgers but not compiler or
+coverage output; `ambient` reads disks and GPU but not services or scheduled
+tasks. The two unbuilt kinds are the two that are not parasitic, and they stay
+behind an explicit door rather than being quietly added.
 
 Nine of eleven are parasitic, which is the whole system's precondition. The two
 that are not are also the two that answer questions nothing else can, so they

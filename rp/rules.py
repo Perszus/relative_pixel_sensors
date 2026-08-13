@@ -279,6 +279,13 @@ RULES: tuple[Rule, ...] = (
       "R", 2.0, "imports never declared as dependencies — works here, not elsewhere",
       12.0),
 
+    # --- identity: what a thing is, not where it sits ------------------------
+    R("duplicate-source", ANY, "duplicate_files", (0,),
+      "R", 1.0, "byte-identical source files — copy-paste that never got "
+                "refactored", 8.0),
+    R("stale-binaries", ANY, "stale_binaries", (0,),
+      "R", 2.0, "committed build output older than the source it came from", 8.0),
+
     # --- review and testing --------------------------------------------------
     R("reviewed", "reviewed", "exists", ("ester_analysis.md",), "G", 1.0,
       "has been reviewed"),

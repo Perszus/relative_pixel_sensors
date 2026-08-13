@@ -398,6 +398,28 @@ def undeclared_deps(root: str, _unused: int = 0) -> float:
         return UNKNOWN
 
 
+# --- identity ---------------------------------------------------------------
+
+
+def duplicate_files(root: str, _unused: int = 0) -> float:
+    """Byte-identical source files inside one project."""
+    from . import identity
+    try:
+        return float(identity.duplicates_within(
+            identity.source_digests(root, list(listing(root)))))
+    except Exception:
+        return UNKNOWN
+
+
+def stale_binaries(root: str, _unused: int = 0) -> float:
+    """Committed build output older than the source it came from."""
+    from . import identity
+    try:
+        return float(identity.stale_artifacts(root, list(listing(root))))
+    except Exception:
+        return UNKNOWN
+
+
 # --- machine ----------------------------------------------------------------
 
 
@@ -529,6 +551,9 @@ PROBES = {
     # expectation
     "version_disagreement": version_disagreement,
     "undeclared_deps": undeclared_deps,
+    # identity
+    "duplicate_files": duplicate_files,
+    "stale_binaries": stale_binaries,
 }
 
 

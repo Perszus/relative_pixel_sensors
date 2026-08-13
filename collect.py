@@ -176,6 +176,33 @@ def region_sizes(live: dict[str, str], router: Router) -> dict[str, int]:
     return sizes
 
 
+def _divergence(live: dict[str, str], forks: list) -> list[tuple[str, str, int, int, list]]:
+    """Which files have actually drifted between near-identical projects.
+
+    Filename overlap says two repositories are forks of one program, which is
+    mildly interesting. Content hashing says *which* of their shared files no
+    longer hold the same bytes, and those are the ones where a fix applied to
+    one and not the other will hide. That is the actionable half, and it needs
+    identity rather than names.
+    """
+    from rp import identity
+
+    digests = {}
+    for repo, label in live.items():
+        if any(label in (a, b) for a, b, _ in forks):
+            digests[label] = identity.source_digests(repo, _tracked_source(repo))
+
+    out = []
+    for a, b, _ in forks:
+        if a not in digests or b not in digests:
+            continue
+        shared, drift, examples = identity.divergence(digests[a], digests[b])
+        if drift:
+            out.append((a, b, shared, drift, examples))
+    out.sort(key=lambda t: -t[3])
+    return out
+
+
 def _forks(live: dict[str, str]) -> list[tuple[str, str, float]]:
     """Projects that are near-copies of each other.
 
@@ -517,8 +544,9 @@ def collect(quiet: bool = False) -> Field:
 
     sizes = region_sizes(live, router)
     coupled.sort(reverse=True)
+    forks = _forks(live)
     shapes = {"fan_in": fan_in, "depends": depends, "coupled": coupled[:5],
-              "forks": _forks(live)}
+              "forks": forks, "divergence": _divergence(live, forks)}
 
     size = field.save(FIELD)
     write_view(field, VIEW, meta, sizes, live, shapes)
