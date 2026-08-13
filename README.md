@@ -1,99 +1,144 @@
 # Relative Pixel Sensors
 
-A hyperlight attention field over a fleet of repositories. It answers **whether**
-something wants attention, so that finding out **what** — the expensive question —
-only gets paid for where it is warranted.
+**A nervous system for a machine full of software.**
 
-It is not a linter, a dashboard, or a CI system. It runs no analysis of its own. It
-taps verdicts that other tools already produce as a by-product — git's index, git's
-log, a reviewer's report, a test runner's cache — and accumulates them into a small
-decaying field over regions of the codebase.
+It answers *whether* something wants your attention, so that finding out *what* —
+the expensive question — only gets paid for where it is warranted.
 
-## The idea in one paragraph
+It is not a linter, a dashboard, or a CI system, and it runs no analysis of its
+own. It taps verdicts other tools already produce as a by-product — git's index,
+a test runner's cache, a reviewer's report, the filesystem's own shape — and
+accumulates them into a small decaying field over regions of whatever it is
+pointed at.
 
-State is a **function of time**, not a simulation of it. Every value is stored with a
-timestamp and decayed when read, so nothing ticks, nothing is scheduled, and no
-process is resident. Absorbing a signal is five multiply-adds. Reading the whole
-fleet is under a millisecond. Between passes the field is still current, because
-there is nothing it needs to be doing.
+```
+RELATIVITY PIXELS — fleet field
+2026-08-13 14:59 · 18 projects · 139 regions · 34 stalled · 14 in hand · 76 quiet
 
-## Reading it
+STALLED  — pressure with nobody on it — look here first
+  app/lib/services      R  13.0 B   0.0 /9   = 1.4  cooling   3 files with findings
+  machine               R  30.5 B   0.0 /0   =  —   standing  C: is 0.5% free
 
-    python collect.py            absorb, then print the one-line field
-    python collect.py --read     read without absorbing
-    python collect.py --sensors  print the sensor spec sheet
+PATTERNS  — only visible with the whole fleet in one frame
+  · engine.cpp and Bridge.kt changed together 27x — coupling the import graph cannot see
+  · load-bearing and under pressure: app/lib/services (4 regions depend on it)
+  · never reviewed: three projects — absence of findings there means absence of looking
+```
 
-`BRIEF.txt` is the wide-field view — the whole fleet on one screen, rewritten every
-pass. It is organised by what a reader can *do*:
+## What it is aiming at
 
-- **STALLED** — pressure with nobody on it. Look here first.
-- **IN HAND** — loud, but someone is already working it.
-- **PROJECTS** — shape: language, size, tests, docs, last commit.
-- **PATTERNS** — statements only true of the whole fleet at once.
-- **QUIET** — regions with nothing to say. Listed by name, because knowing what to
-  skip is the larger half of the payload.
+Most tools tell you what is wrong once you have already decided where to look.
+The expensive part of working in an unfamiliar system is not diagnosis, it is
+**orientation** — deciding where to point a microscope. This is the telescope
+for that: the whole system at low magnification, organised by what you can *do*
+about each part.
 
-`view.json` is the same field rendered for a viewer. `field.json` is the store.
+Three properties it is built to keep:
 
-## Design rules the sensors obey
+**Always on, never running.** State is a function of time rather than a
+simulation of it. Every value is stored with a timestamp and decayed when read,
+so nothing ticks, nothing is scheduled, and no process is resident. Absorbing a
+signal is five multiply-adds; reading the whole system is under a millisecond.
+Between passes the field is still current, because there is nothing it needs to
+be doing.
 
-**Tap verdicts, never scan.** Nothing walks the tree for the field's benefit. If a
-signal is not already being produced by something else, it does not get collected.
+**Parasitic.** It attaches to a host, runs on machinery the host was already
+running, and costs it almost nothing. Nine of its eleven probe kinds never
+execute anything. What it must never be is transmissible in the other sense: it
+is trivial to attach and it does not attach itself.
+
+**It grows onto what it finds.** There is no atlas of where things live. A
+directory holding `Cargo.toml` is a Rust crate wherever it sits, and rules latch
+onto *what a thing is* rather than where it is. Point it at anything.
+
+## How it works
+
+| layer | what it is |
+|---|---|
+| **Recognizer** | a structural signature: `Cargo.toml` present → rust-crate |
+| **Probe** | a way to extract one value — presence, count, regex, parse, size, host state |
+| **Rule** | declarative: a scope, a probe, a channel and a weight |
+| **Field** | decaying accumulators over regions, in three channels |
+| **Serving** | one line, a briefing, or a colour grid |
+
+Rules are data, so adding one is a line rather than a function. Scoping is what
+makes volume safe: a rule latched to `rust-crate` is silent on everything that
+is not one, and on a typical run about a third of the rule table fires on
+nothing at all — which for a rule that detects committed credentials is the
+correct and desired answer.
+
+The channels are **R** pressure, **G** health, **B** activity, and the reading
+that matters is the combination. Red without blue is damage nobody is working
+on. Red with blue is already in hand. The same magnitude, opposite instructions.
+
+See [`PROBES.md`](PROBES.md) for the probe taxonomy — eleven kinds, classified
+by what each needs in order to answer, because that is what predicts cost,
+whether it stays parasitic, and how it fails.
+
+## Using it
+
+```
+python collect.py              absorb, then print the one-line field
+python collect.py --read       read without absorbing
+python collect.py --sensors    the sensor spec sheet
+python collect.py --rediscover re-scan for subjects
+python ruleset.py              the rule table
+python audit.py                the field's claims vs independently derived facts
+```
+
+Point it somewhere by setting `RP_ROOTS` (path-separated) or writing
+`roots.json`:
+
+```json
+{ "roots": ["/home/you/code", "/srv"] }
+```
+
+With neither, it looks in the directory containing the tool. `BRIEF.txt` is the
+wide-field view, rewritten every pass. `view.json` is the same field rendered
+for a viewer.
+
+## Design rules
+
+**Tap verdicts, never scan.** If a signal is not already being produced by
+something else, it does not get collected.
 
 **Declare the statement type.** An *event* accumulates and decays; a *standing*
-statement is set and must clear; a *state* is the current answer and replaces the
-last. Collapsing the three is the bug that kills this kind of tool — a judgment that
-never clears saturates the field within weeks.
+statement is set and must clear; a *state* replaces the last answer. Collapsing
+them is what kills this kind of tool — a judgement that never clears saturates
+the field within weeks.
 
-**Answer for the whole fleet at once.** Clearing is the half that gets forgotten. A
-sensor can only retract a finding it no longer sees if it reports its complete
-picture every pass.
-
-**Pressure is filtered to what is yours; activity is not.** A repair inside a
-vendored library is nobody's job here. A vendor bump is still real work.
+**Answer for the whole subject at once.** Clearing is the half that gets
+forgotten. A sensor can only retract a finding it no longer sees if it reports
+its complete picture every pass.
 
 **A verdict older than the code is not a verdict.** A test run or a review is an
-opinion about one snapshot; once the code moves past it, the opinion is not wrong so
-much as about something else.
+opinion about one snapshot; once the code moves past it, the opinion is not
+wrong so much as about something else.
 
-**Structure is not a channel.** How load-bearing a region is — how many others
-import from it — is neither good nor bad, so folding it into pressure would assert
-that important code is damaged code. It sits alongside, and the *pair* is what
-ranks: a region twenty things depend on is a different proposition under the same
-pressure than a leaf nobody touches, and pressure alone cannot tell them apart.
+**Absence must be distinguishable from silence.** This field reads quiet as
+licence to skip, so a probe that cannot tell "looked and found nothing" from
+"did not look" manufactures false negatives.
 
-**Channels do not share a scale.** One commit touches thirty files while one finding
-is one finding. Bands are calibrated per channel rather than forcing the weights to
-agree, because making them agree would mean falsifying what each sensor measures.
-
-## Tests
-
-    python -m pytest          the invariants — 76 tests, fast
-    python run_experiments.py the mechanism benchmarks (M-series, ~30s)
-    python audit.py           the field's claims vs independently derived facts
-
-`audit.py` deliberately shares no code with the sensors: it walks the filesystem
-instead of reading git's index and parses reports directly instead of through the
-sensor, because an audit sharing a code path only proves the code agrees with
-itself. It found two real bugs on its first run.
-
-Every test in `tests/` corresponds to a bug that actually happened, not to a line
-that wanted covering. The epoch-zero sentinel, the backward read, judgments that
-never cleared, and a label collision that would have merged two projects into one
-set of regions all shipped and were all found by accident.
+**Channels do not share a scale.** One commit touches thirty files; one finding
+is one finding. Bands are calibrated per channel rather than forcing weights to
+agree, because making them agree would mean falsifying what each sensor
+measures.
 
 ## Status
 
-The mechanism is tested (`run_experiments.py`, results in `results.md`): lazy decay
-is exact, ingest is O(1) in history, reads are O(regions), and idle cost is
-structurally zero. What has **not** been established is whether the field ranks
-better than "what changed most recently" — that needs history this fleet does not
-have yet, and it is the gate the whole idea stands or falls on. See `experiments.md`.
+Honest about what is and is not established.
 
-Weights are documented guesses. `calibrate.py` prints what each sensor actually
-contributes, which is the honest way to set them.
+**Tested:** the mechanism. Lazy decay is exact to 2.7e-11, ingest is O(1) in
+history, reads are O(regions), idle cost is structurally zero, and resident
+state is a couple of hundred kilobytes. `python run_experiments.py` runs the
+benchmarks; `python -m pytest` runs 112 invariant tests; `audit.py` re-derives
+the field's claims by a different code path and has caught two real bugs.
 
-## Companion
+**Not established:** that the field ranks better than "what changed most
+recently". That needs a replay over history longer than the author's own fleet
+has, and it is the gate the whole idea stands or falls on. The weights are
+documented guesses — `calibrate.py` measures what each sensor contributes, and
+nothing tunes them, because tuning without ground truth is moving numbers until
+the output looks agreeable.
 
-Sentinel (a separate project) renders this field as a colour grid, one pixel per
-region, and drives an absorption pass while it runs. Nothing here depends on it.
+MIT licensed. Contributions welcome, particularly rules and probe kinds.

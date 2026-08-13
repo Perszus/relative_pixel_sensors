@@ -38,27 +38,43 @@ MARKS = os.path.join(HERE, "watermarks.json")
 SHAPES = os.path.join(HERE, "shapes.json")
 FLEET_CFG = os.path.join(HERE, "fleet.json")
 
-# Where repos live. Discovery beats a hand-written list: the first version of
-# this file named eight repos and the machine had eighteen, so the field was
-# blind to more than half the fleet -- including its own repo, a site in
-# production, and every packaging target. A map that silently covers 44% of the
-# thing it claims to map is worse than one that admits its edges.
-#
-# Arch is deliberately not here. It is the archive tier, so everything in it is
-# dormant by definition and would fire the "untouched for months" pattern
-# forever -- a signal that is always on is off. Add it to this tuple to watch it.
-FLEET_ROOTS = ("F:/Code/Development", "F:/Code/Production")
+ROOTS_CFG = os.path.join(HERE, "roots.json")
 
-# Friendlier names for repos whose directory is not what anyone calls them.
-ALIASES = {
-    "ouroborous_android": "orobos",
-    "ester_code_slim": "ester",
-    "this_note_windows": "thisnote",
-    "purite_windows": "purity",
-    "huthut_windows": "huts",
-    "relative_pixel_sensors": "pixels",
-    "bolwarra-technologies-website": "bolwarra",
-}
+
+def load_json(path: str, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def _default_roots() -> tuple[str, ...]:
+    """Where to look, in order of preference.
+
+    A hardcoded root list is an atlas, and this is supposed to grow nerves
+    wherever tissue is. So: an explicit override, then a config file, then the
+    directory containing this tool -- which is almost always sitting alongside
+    the things it should be watching.
+    """
+    env = os.environ.get("RP_ROOTS")
+    if env:
+        return tuple(p.strip().replace("\\", "/") for p in env.split(os.pathsep)
+                     if p.strip())
+    cfg = load_json(ROOTS_CFG, None)
+    if cfg:
+        roots = cfg.get("roots") if isinstance(cfg, dict) else cfg
+        if roots:
+            return tuple(str(p).replace("\\", "/") for p in roots)
+    parent = os.path.dirname(HERE).replace("\\", "/")
+    return (parent,)
+
+
+FLEET_ROOTS = _default_roots()
+
+# Directory names that are not what anyone calls the project. Local, because
+# nobody else's repo is called what yours is.
+ALIASES: dict[str, str] = load_json(os.path.join(HERE, "aliases.json"), {})
 
 
 def discover_fleet() -> dict[str, str]:
@@ -99,18 +115,9 @@ def discover_fleet() -> dict[str, str]:
     return found
 
 
-# Retained so the harness and older callers keep working; the live fleet comes
-# from discovery or from fleet.json.
-DEFAULT_FLEET = {
-    "F:/Code/Development/veil": "veil",
-    "F:/Code/Development/ouroborous_android": "orobos",
-    "F:/Code/Development/ester_code_slim": "ester",
-    "F:/Code/Development/sentinel": "sentinel",
-    "F:/Code/Development/paranoia": "paranoia",
-    "F:/Code/Production/this_note_windows": "thisnote",
-    "F:/Code/Production/purite_windows": "purity",
-    "F:/Code/Production/huthut_windows": "huts",
-}
+# Retained so older callers keep working; the live fleet comes from discovery
+# or from fleet.json, both of which are local to whatever machine this runs on.
+DEFAULT_FLEET: dict[str, str] = {}
 
 BOOTSTRAP_WINDOW = "180 days ago"
 
@@ -118,14 +125,6 @@ BOOTSTRAP_WINDOW = "180 days ago"
 # builds something. Both are real; only one is pressure.
 FIX_WORDS = ("fix", "bug", "crash", "regress", "broke", "broken", "revert",
              "hotfix", "patch", "leak", "deadlock", "workaround")
-
-
-def load_json(path: str, default):
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return default
 
 
 @lru_cache(maxsize=64)
