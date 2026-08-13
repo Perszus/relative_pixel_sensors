@@ -69,7 +69,8 @@ DEBT_RE = r"TODO|FIXME|HACK|XXX"
 # audio library are six places attention can be pulled to and can do nothing
 # about. Signals from these paths still land, on the nearest real ancestor.
 NOT_OURS = ("third_party", "thirdparty", "vendor", "vendored", "node_modules",
-            "archive", "legacy", "generated", "external", ".dart_tool")
+            "archive", "archived", "legacy", "generated", "external", ".dart_tool",
+            "backup", "backups", "old", "deprecated")
 
 
 def is_ours(path: str) -> bool:

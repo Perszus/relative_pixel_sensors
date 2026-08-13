@@ -8,8 +8,9 @@ field is still current, because the state is a function of time (2.0 sec.3.1) --
 Usage:
     python collect.py            absorb, then print Layer 1
     python collect.py --quiet    absorb silently (exit 0)
-    python collect.py --read     print Layer 1 without absorbing
-    python collect.py --sensors  print the sensor spec sheet and exit
+    python collect.py --read        print Layer 1 without absorbing
+    python collect.py --sensors     print the sensor spec sheet and exit
+    python collect.py --rediscover  re-scan for repos, rewriting fleet.json
 """
 
 from __future__ import annotations
@@ -35,6 +36,69 @@ BRIEF = os.path.join(HERE, "BRIEF.txt")
 MARKS = os.path.join(HERE, "watermarks.json")
 FLEET_CFG = os.path.join(HERE, "fleet.json")
 
+# Where repos live. Discovery beats a hand-written list: the first version of
+# this file named eight repos and the machine had eighteen, so the field was
+# blind to more than half the fleet -- including its own repo, a site in
+# production, and every packaging target. A map that silently covers 44% of the
+# thing it claims to map is worse than one that admits its edges.
+#
+# Arch is deliberately not here. It is the archive tier, so everything in it is
+# dormant by definition and would fire the "untouched for months" pattern
+# forever -- a signal that is always on is off. Add it to this tuple to watch it.
+FLEET_ROOTS = ("F:/Code/Development", "F:/Code/Production")
+
+# Friendlier names for repos whose directory is not what anyone calls them.
+ALIASES = {
+    "ouroborous_android": "orobos",
+    "ester_code_slim": "ester",
+    "this_note_windows": "thisnote",
+    "purite_windows": "purity",
+    "huthut_windows": "huts",
+    "relative_pixel_sensors": "pixels",
+    "bolwarra-technologies-website": "bolwarra",
+}
+
+
+def discover_fleet() -> dict[str, str]:
+    """Every git repo under the known roots, keyed by path.
+
+    Skips repos with no commits: an empty repo has nothing to say and would
+    only add a permanently cold region. Everything else is included, because
+    deciding in advance which projects are worth watching is precisely the
+    judgement this tool exists to replace.
+    """
+    found: dict[str, str] = {}
+    for root in FLEET_ROOTS:
+        if not os.path.isdir(root):
+            continue
+        try:
+            entries = sorted(os.scandir(root), key=lambda e: e.name)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.is_dir() or not os.path.isdir(os.path.join(entry.path, ".git")):
+                continue
+            path = entry.path.replace("\\", "/")
+            if not git(path, "rev-parse", "HEAD").strip():
+                continue
+            found[path] = ALIASES.get(entry.name, entry.name)
+
+    # Two repos sharing a label would silently merge into one set of regions,
+    # and the merge is invisible: the field just reports one project's pressure
+    # under another's name. `ester_code_slim` is aliased to "ester" and there is
+    # also a directory literally called "ester".
+    by_label: dict[str, list[str]] = {}
+    for path, label in found.items():
+        by_label.setdefault(label, []).append(path)
+    for label, paths in by_label.items():
+        if len(paths) > 1:
+            for p in paths:
+                found[p] = os.path.basename(p)
+    return found
+
+
+# Retained so the harness and older callers keep working; the live fleet comes
+# from discovery or from fleet.json.
 DEFAULT_FLEET = {
     "F:/Code/Development/veil": "veil",
     "F:/Code/Development/ouroborous_android": "orobos",
@@ -107,6 +171,22 @@ def region_sizes(live: dict[str, str], router: Router) -> dict[str, int]:
             if g:
                 sizes[g] = sizes.get(g, 0) + 1
     return sizes
+
+
+def load_fleet(rediscover: bool = False) -> dict[str, str]:
+    """The watched fleet: whatever fleet.json says, or discovery if it is absent.
+
+    An edited fleet.json wins, because pruning a repo you deliberately do not
+    want watched should stick. `--rediscover` is the way back to the full set.
+    """
+    if not rediscover:
+        existing = load_json(FLEET_CFG, None)
+        if existing:
+            return existing
+    fleet = discover_fleet()
+    with open(FLEET_CFG, "w", encoding="utf-8") as fh:
+        json.dump(fleet, fh, indent=2)
+    return fleet
 
 
 def build_router(fleet: dict[str, str]) -> Router:
@@ -227,11 +307,7 @@ def _inherit(per_group: dict, all_groups: set[str]) -> dict:
 
 
 def collect(quiet: bool = False) -> Field:
-    fleet = load_json(FLEET_CFG, None)
-    if fleet is None:
-        fleet = DEFAULT_FLEET
-        with open(FLEET_CFG, "w", encoding="utf-8") as fh:
-            json.dump(fleet, fh, indent=2)
+    fleet = load_fleet()
     live = {r: l for r, l in fleet.items() if os.path.isdir(r)}
 
     router = build_router(live)
@@ -254,7 +330,10 @@ def collect(quiet: bool = False) -> Field:
     # groups belonging to every other repo.
     merged: dict[str, dict] = {k: {} for k in CHANNEL}
     meta: dict[str, dict] = {}
-    with ThreadPoolExecutor(max_workers=min(8, len(live) or 1)) as pool:
+    # The work is almost entirely waiting on git subprocesses, so the useful
+    # width is the repo count, not the core count. Capped at 8 while the fleet
+    # was 8 repos, which quietly halved throughput once it became 18.
+    with ThreadPoolExecutor(max_workers=min(24, len(live) or 1)) as pool:
         futures = {pool.submit(_probe_repo, r, l, router): l for r, l in live.items()}
         for fut in futures:
             try:
@@ -373,10 +452,14 @@ def main() -> int:
         print_sensors()
         return 0
     if "--read" in args:
-        fleet = load_json(FLEET_CFG, DEFAULT_FLEET)
-        field = Field.load(FIELD, build_router(fleet))
+        field = Field.load(FIELD, build_router(load_fleet()))
         print(layer1(field))
         return 0
+    if "--rediscover" in args:
+        fleet = load_fleet(rediscover=True)
+        print(f"discovered {len(fleet)} repos:")
+        for path, label in sorted(fleet.items(), key=lambda kv: kv[1]):
+            print(f"  {label:<16} {path}")
     field = collect(quiet="--quiet" in args)
     if "--quiet" not in args:
         print(layer1(field))

@@ -158,10 +158,16 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
             "why": _why(r, gr, b),
         })
 
-    # A telescope that lists everything is a list. Regions below this are real
-    # but not worth a line on a page meant to be read at a glance; they are
-    # counted instead, so nothing disappears silently.
+    # A telescope that lists everything is a list. Regions below the floor are
+    # real but not worth a line on a page meant to be read at a glance, and even
+    # above it there is a limit to how many lines a glance can hold. Both are
+    # counted rather than dropped, so nothing disappears silently.
+    #
+    # The cap matters more than it looks: a floor alone held while the fleet was
+    # eight repos and then let one section reach thirty-nine rows at eighteen.
+    # Any threshold that does not scale with the fleet will fail the same way.
     FLOOR = 2.0
+    CAP = 10
 
     hot = [x for x in rows if x["r"] > 0.5]
     # The split that matters. Same pressure, opposite instruction: one needs
@@ -183,14 +189,21 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
         if not items:
             out.append("  (none)")
             return
-        shown = [x for x in items if x["r"] >= FLOOR]
+        over = [x for x in items if x["r"] >= FLOOR]
+        shown = over[:CAP]
         for x in shown:
             dens = f"{x['density']:>5.1f}" if x["size"] else "    —"
-            out.append(f"  {x['name']:<26} R{x['r']:>6.1f} B{x['b']:>7.1f} "
-                       f"/{x['size']:<3} ={dens}  {x['profile']:<9} {x['why']}")
-        rest = len(items) - len(shown)
-        if rest:
-            out.append(f"  … and {rest} more under R{FLOOR:g}")
+            out.append(f"  {x['name']:<32} R{x['r']:>6.1f} B{x['b']:>7.1f} "
+                       f"/{x['size']:<4} ={dens}  {x['profile']:<9} {x['why']}")
+        trimmed = len(over) - len(shown)
+        under = len(items) - len(over)
+        tail = []
+        if trimmed:
+            tail.append(f"{trimmed} more above R{FLOOR:g}")
+        if under:
+            tail.append(f"{under} under R{FLOOR:g}")
+        if tail:
+            out.append(f"  … and {', '.join(tail)}")
 
     block("STALLED", "pressure with nobody on it — look here first", stalled)
     block("IN HAND", "loud, but someone is already working it", working)
@@ -199,7 +212,7 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
     # they are the context that makes the rows above mean anything.
     out.append("")
     out.append("PROJECTS")
-    out.append(f"  {'name':<11} {'kind':<5} {'files':>6} {'src':>5} {'tests':>6} "
+    out.append(f"  {'name':<18} {'kind':<5} {'files':>6} {'src':>5} {'tests':>6} "
                f"{'vend':>6} {'docs':<5} {'last commit':<12} regions")
     for name in sorted(meta):
         m = meta[name]
@@ -210,7 +223,7 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
         tests = m.get("tests", 0)
         flag = "  <— none" if m.get("source") and not tests else ""
         vend = m.get("vendored", 0)
-        out.append(f"  {name:<11} {m.get('kind','?'):<5} {m.get('files',0):>6} "
+        out.append(f"  {name:<18} {m.get('kind','?'):<5} {m.get('files',0):>6} "
                    f"{m.get('source',0):>5} {tests:>6} {vend:>6} {docs:<5} "
                    f"{m.get('last_commit','?'):<12} {kids}{flag}")
 
