@@ -1,7 +1,7 @@
 """Why does the field say that?
 
     python explain.py machine            every finding on a subject
-    python explain.py thisnote/lib       "
+    python explain.py app/lib/services       "
     python explain.py --rule no-ci       one rule, everywhere it fires
     python explain.py --loudest          the ten largest contributions in the field
 
