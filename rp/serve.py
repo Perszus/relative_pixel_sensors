@@ -55,6 +55,91 @@ def _mark(ch, now: float) -> str:
     return _ARROW[ch.effective_profile(now)]
 
 
+def glance(view: dict, path: str, now: float | None = None,
+           limit: int = 5, stale_after: float = 6 * 3600.0) -> str:
+    """The orientation layer: what a reader needs *before* they know they need
+    anything. Sized to be paid unconditionally at the start of every session.
+
+    Reads the rendered view rather than the field because it must cost nothing:
+    no absorption, no git, no rule table -- one JSON load. A layer that is
+    expensive to produce will not be consulted at the moment it is worth most,
+    which is before the reader has any reason to suspect a problem.
+
+    Three things and no more:
+
+    * When the field was measured. First, and unconditional. A reading whose
+      age is unstated invites being used as though it were current, and this
+      instrument is fed by a tray app that is sometimes closed. Past
+      `stale_after` the age stops being a footnote and becomes the message.
+    * Reflexes, in full. The nociceptor tier is the one thing that cannot wait
+      for the reader to go looking, so it is never summarised or truncated.
+    * Where pressure is sitting with nobody on it -- names only. Names are what
+      a reader needs to decide where to point; magnitudes here would invite
+      acting on a number that has no context attached yet, which is what the
+      brief exists to supply.
+
+    Everything else is deliberately withheld behind a pointer. The purpose is
+    to make the next question cheap, not to answer it.
+
+    ASCII only, unlike every other layer here. This is the one output that gets
+    piped through whatever shell a host happens to invoke a hook with, and the
+    typographic separators the brief uses arrive as replacement characters on
+    the other side of a mismatched code page.
+    """
+    now = time.time() if now is None else now
+    groups = view.get("groups") or []
+    if not groups:
+        return f"relativity pixels: field is empty - run `python collect.py` in {path}"
+
+    age = max(0.0, now - float(view.get("collected_at") or 0.0))
+    stale = age >= stale_after
+    when = _ago(age)
+    projects = sum(1 for g in groups if "/" not in g["name"] and g["name"] != "machine")
+    cold = sum(1 for g in groups if max(g["rgb"]) < 2.0)
+
+    out = [
+        f"RELATIVITY PIXELS | measured {when} | {projects} projects | "
+        f"{len(groups)} regions | {cold} quiet"
+    ]
+    if stale:
+        out.append(
+            f"  !! STALE ({when}) - the collector is not running. "
+            f"Re-run `python collect.py` before trusting anything below."
+        )
+
+    # Unranked and never elided: see `_reflexes`.
+    for g in groups:
+        for words in g.get("reflexes") or ():
+            out.append(f"  !! {g['name']}: {words}")
+
+    # Pressure with no activity beside it. The same "damaged and abandoned"
+    # quadrant the brief leads with, minus every number.
+    stalled = sorted(
+        (g for g in groups if g["rgb"][0] >= 2.0 and g["rgb"][2] < 1.0),
+        key=lambda g: -g["rgb"][0],
+    )
+    if stalled:
+        names = ", ".join(g["name"] for g in stalled[:limit])
+        more = f" (+{len(stalled) - limit} more)" if len(stalled) > limit else ""
+        out.append(f"  stalled - pressure nobody is on: {names}{more}")
+
+    out.append(f"  detail: {path}\\BRIEF.txt | explain.py <rule> | ruleset.py --live")
+    # Enforced rather than assumed: the reflex words above are rule-supplied
+    # text, so keeping this layer ASCII cannot be a convention the rule table
+    # is trusted to follow.
+    return "\n".join(out).encode("ascii", "replace").decode("ascii")
+
+
+def _ago(seconds: float) -> str:
+    if seconds < 90:
+        return "just now"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} min ago"
+    if seconds < 172800:
+        return f"{round(seconds / 3600)} h ago"
+    return f"{round(seconds / 86400)} days ago"
+
+
 def layer1(field: Field, now: float | None = None, limit: int = 12) -> str:
     """Pushed unconditionally. Magnitude and direction only -- deliberately
     says nothing about *what*, because the what is the next step and it is the

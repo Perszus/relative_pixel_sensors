@@ -9,6 +9,7 @@ Usage:
     python collect.py            absorb, then print Layer 1
     python collect.py --quiet    absorb silently (exit 0)
     python collect.py --read        print Layer 1 without absorbing
+    python collect.py --glance      print the orientation layer (cheap; for hooks)
     python collect.py --sensors     print the sensor spec sheet and exit
     python collect.py --rediscover  re-scan for repos, rewriting fleet.json
 """
@@ -27,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from rp import expectation, probes, rules, sensors, shape
 from rp.sensors import REGISTRY, git
-from rp.serve import brief, layer1
+from rp.serve import brief, glance, layer1
 from rp.store import Field, Router
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -696,6 +697,18 @@ def main() -> int:
     if "--read" in args:
         field = Field.load(FIELD, build_router(load_fleet()))
         print(layer1(field))
+        return 0
+    if "--glance" in args:
+        # Runs unattended at session start, so it must never be the reason a
+        # session fails to open: every path here exits 0, and a field that
+        # cannot be read says so in one line instead of raising.
+        try:
+            with open(VIEW, encoding="utf-8") as fh:
+                print(glance(json.load(fh), HERE))
+        except FileNotFoundError:
+            print(f"relativity pixels: no field yet — run `python collect.py` in {HERE}")
+        except Exception as exc:  # noqa: BLE001 - see above
+            print(f"relativity pixels: field unreadable ({exc.__class__.__name__}: {exc})")
         return 0
     if "--rediscover" in args:
         fleet = load_fleet(rediscover=True)
