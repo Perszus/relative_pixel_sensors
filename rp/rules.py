@@ -239,6 +239,32 @@ RULES: tuple[Rule, ...] = (
     R("untyped", "python-pkg", "untyped_share", ("*.py",),
       "G", 0.0, "share of parameters without annotations"),
 
+    # --- history: the only kind that can say "getting worse" -----------------
+    # Every window is stated in the rule, because a count without its horizon
+    # is a number nobody can compare to anything.
+    R("churn-accelerating", "repo", "churn_acceleration", (30,),
+      "R", 1.5, "change is accelerating — more churn this month than last", 8.0),
+    R("hotspots", "repo", "hotspots", (90, 12),
+      "R", 0.8, "files changed more than 12 times in 90 days", 8.0),
+    R("repair-heavy", "repo", "fix_ratio", (90,),
+      "R", 0.06, "share of commits in 90 days that are repairs", 8.0),
+    R("reverts", "repo", "reverts", (90,),
+      "R", 1.5, "commits reverted in 90 days — changes that should not have shipped", 8.0),
+    R("patched-not-developed", "repo", "fix_only_files", (180,),
+      "R", 1.0, "files only ever touched to repair something", 8.0),
+    R("sweeping-commits", "repo", "big_commits", (90, 40),
+      "R", 0.3, "commits touching more than 40 files — unreviewable in one sitting", 5.0),
+    R("dormant", "repo", "stagnant_days", (0,),
+      "R", 0.0, "days since the last commit"),
+    # Deliberately a whisper. It is measured correctly now, but on a young
+    # fleet almost every project scores near the cap, and a signal every
+    # subject scores the same on changes no ranking. Kept because it does
+    # discriminate on a mature codebase, weighted so it cannot inflate R here.
+    R("new-code", "repo", "new_code_share", (90,),
+      "R", 0.004, "share of the source tree created in the last 90 days", 1.5),
+    R("active", "repo", "commits_in", (30,),
+      "B", 0.4, "commits in the last 30 days", 20.0),
+
     # --- review and testing --------------------------------------------------
     R("reviewed", "reviewed", "exists", ("ester_analysis.md",), "G", 1.0,
       "has been reviewed"),

@@ -306,10 +306,35 @@ def _probe_repo(repo: str, label: str, router, shape_cache: dict) -> dict:
         "doc_drift": sensors.doc_drift(repo, label, all_files),
         "suggestions": sensors.suggestions(repo, label),
         "shape": _shape_for(repo, label, router, all_files, shape_cache),
-        "rules": rules.evaluate(label, repo, rules.recognize(repo)),
+        "rules": _rules_for(repo, label, shape_cache),
         "kinds": sorted(rules.recognize(repo)),
         "meta": meta,
     }
+
+
+def _rules_for(repo: str, label: str, cache: dict) -> list:
+    """Rule findings, recomputed only when the repo has actually moved.
+
+    Parsing every Python file to answer the grammar rules is 90% of a pass, and
+    every one of those parses returns the same answer until something is
+    committed. Keyed on HEAD, alongside shape.
+
+    The trade is deliberate: a rule about a file edited but not yet committed
+    will not fire until it is. These rules are statements about the repository,
+    not about the working copy, and the sensors that *are* about the working
+    copy -- `wip` and friends -- are not cached.
+    """
+    head = git(repo, "rev-parse", "HEAD").strip()
+    hit = cache.get(label)
+    if head and hit and hit.get("head") == head and "rules" in hit:
+        return [rules.Finding(*row) for row in hit["rules"]]
+    found = rules.evaluate(label, repo, rules.recognize(repo))
+    if head:
+        entry = cache.setdefault(label, {"head": head})
+        entry["head"] = head
+        entry["rules"] = [[f.rule, f.subject, f.kind, f.channel, f.value, f.says]
+                          for f in found]
+    return found
 
 
 def _shape_for(repo: str, label: str, router, all_files: list[str],
@@ -324,11 +349,15 @@ def _shape_for(repo: str, label: str, router, all_files: list[str],
     """
     head = git(repo, "rev-parse", "HEAD").strip()
     hit = cache.get(label)
-    if head and hit and hit.get("head") == head:
+    if head and hit and hit.get("head") == head and "shape" in hit:
         return hit["shape"]
     result = shape.analyse(repo, label, router, all_files)
     if head:
-        cache[label] = {"head": head, "shape": result}
+        entry = cache.setdefault(label, {"head": head})
+        if entry.get("head") != head:
+            entry.clear()
+            entry["head"] = head
+        entry["shape"] = result
     return result
 
 

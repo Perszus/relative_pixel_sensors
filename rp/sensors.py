@@ -69,6 +69,13 @@ SOURCE_SUFFIX = tuple(e.lstrip("*") for e in SOURCE_EXT)
 
 DEBT_RE = r"TODO|FIXME|HACK|XXX"
 
+# What a commit subject looks like when it is repairing rather than building.
+# Shared so the history probes and the activity sensor agree about what counts
+# as a fix — two definitions of that would make their numbers incomparable.
+FIX_WORDS = ("fix", "bug", "crash", "regress", "broke", "broken", "revert",
+             "hotfix", "patch", "leak", "deadlock", "workaround")
+FIX_HINT = re.compile("|".join(FIX_WORDS), re.I)
+
 # Code that is tracked but not ours to act on. Excluded from *sizing* the
 # regions, so it never earns a region of its own -- six regions of vendored
 # audio library are six places attention can be pulled to and can do nothing

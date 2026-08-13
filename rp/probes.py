@@ -25,8 +25,15 @@ from functools import lru_cache
 
 
 @lru_cache(maxsize=512)
-def run(cmd: tuple[str, ...], cwd: str | None = None, timeout: int = 60) -> str:
-    """A command's stdout, or empty on any failure.
+def run(cmd: tuple[str, ...], cwd: str | None = None, timeout: int = 60) -> str | None:
+    """A command's stdout, or **None if the command failed**.
+
+    None rather than empty string, and that distinction is the point. A failed
+    command and a command that found nothing are opposite facts, and returning
+    "" for both is how this system reports a broken probe as a clean result. It
+    has happened three times: a malformed git format string silenced an entire
+    probe kind, and a missing `-e` made every content rule in the fleet go
+    quiet while nothing anywhere said so.
 
     Cached per pass: several rules ask the same question, and a rule set is
     supposed to be written without its author tracking who else already asked.
@@ -34,13 +41,18 @@ def run(cmd: tuple[str, ...], cwd: str | None = None, timeout: int = 60) -> str:
     try:
         p = subprocess.run(list(cmd), capture_output=True, text=True,
                            timeout=timeout, shell=False, cwd=cwd)
-        return p.stdout if p.returncode == 0 else ""
+        return p.stdout if p.returncode == 0 else None
     except Exception:
-        return ""
+        return None
+
+
+def text(out: str | None) -> str:
+    """For callers that genuinely cannot act on the difference."""
+    return out or ""
 
 
 def git(root: str, *args: str) -> str:
-    return run(("git", "-C", root, *args))
+    return text(run(("git", "-C", root, *args)))
 
 
 # --- filesystem -------------------------------------------------------------
@@ -159,16 +171,26 @@ def content(root: str, pattern: str, regex: str) -> float:
     grep's own --and --not, so the filter costs nothing.
     """
     if git(root, "rev-parse", "HEAD").strip():
-        out = run(("git", "-C", root, "grep", "-I", "-c", "-E", regex,
-                   "--and", "--not", "-e", ALLOW_MARKER, "--", pattern))
-        total = 0.0
-        for line in out.splitlines():
-            _, _, n = line.rpartition(":")
-            try:
-                total += int(n)
-            except ValueError:
-                pass
-        return total
+        # `-e` on BOTH patterns. Without it git parses `--and` as a revision and
+        # fails outright, which silenced every content rule in the fleet while
+        # each one reported a clean zero.
+        out = run(("git", "-C", root, "grep", "-I", "-c", "-E",
+                   "-e", regex, "--and", "--not", "-e", ALLOW_MARKER,
+                   "--", pattern))
+        if out is None:
+            # git grep exits non-zero for "no matches" as well as for a broken
+            # invocation, so fall through to reading the files rather than
+            # guessing which happened.
+            pass
+        else:
+            total = 0.0
+            for line in out.splitlines():
+                _, _, n = line.rpartition(":")
+                try:
+                    total += int(n)
+                except ValueError:
+                    pass
+            return total
     rx = re.compile(regex)
     total = 0.0
     for f in matches(root, pattern)[:400]:
@@ -332,13 +354,36 @@ def untyped_share(root: str, pattern: str = "*.py") -> float:
     return (1.0 - sum(covered) / len(covered)) * 100.0
 
 
+# --- history ----------------------------------------------------------------
+#
+# Every probe here takes its window as an argument and the rule states it, so
+# the number is comparable to something. "Ten commits" over a week and over a
+# year are different facts.
+
+
+def _history(name: str):
+    def probe(root: str, *args) -> float:
+        from . import history
+        try:
+            value = float(getattr(history, name)(root, *args))
+        except Exception:
+            # UNKNOWN, not zero. A probe that cannot answer must not be
+            # indistinguishable from one that answered "nothing here" — the
+            # first version returned 0.0 and hid a bug that had silenced every
+            # probe in this kind across the whole fleet.
+            return UNKNOWN
+        return UNKNOWN if value == float("inf") else value
+    probe.__name__ = f"history_{name}"
+    return probe
+
+
 # --- machine ----------------------------------------------------------------
 
 
 @lru_cache(maxsize=1)
 def processes() -> tuple[str, ...]:
     """Running image names, lowercased."""
-    out = run(("tasklist", "/fo", "csv", "/nh"))
+    out = text(run(("tasklist", "/fo", "csv", "/nh")))
     names = []
     for line in out.splitlines():
         if line.startswith('"'):
@@ -352,7 +397,7 @@ def process_running(_root: str, name: str) -> float:
 
 @lru_cache(maxsize=1)
 def listening_ports() -> tuple[int, ...]:
-    out = run(("netstat", "-ano", "-p", "TCP"))
+    out = text(run(("netstat", "-ano", "-p", "TCP")))
     ports = set()
     for line in out.splitlines():
         parts = line.split()
@@ -380,8 +425,8 @@ def disk_free_pct(_root: str, drive: str) -> float:
 @lru_cache(maxsize=1)
 def gpu() -> tuple[float, float]:
     """(used MB, total MB) for the first GPU, or zeros."""
-    out = run(("nvidia-smi", "--query-gpu=memory.used,memory.total",
-               "--format=csv,noheader,nounits"))
+    out = text(run(("nvidia-smi", "--query-gpu=memory.used,memory.total",
+               "--format=csv,noheader,nounits")))
     line = out.strip().splitlines()[0] if out.strip() else ""
     try:
         used, total = (float(x.strip()) for x in line.split(","))
@@ -449,6 +494,17 @@ PROBES = {
     "wide_signatures": wide_signatures,
     "unused_privates": unused_privates,
     "untyped_share": untyped_share,
+    # history
+    "churn": _history("churn"),
+    "churn_acceleration": _history("churn_acceleration"),
+    "fix_ratio": _history("fix_ratio"),
+    "reverts": _history("reverts"),
+    "hotspots": _history("hotspots"),
+    "stagnant_days": _history("stagnant_days"),
+    "new_code_share": _history("new_code_share"),
+    "big_commits": _history("big_commits"),
+    "fix_only_files": _history("fix_only_files"),
+    "commits_in": _history("commits_in"),
 }
 
 

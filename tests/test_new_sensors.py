@@ -44,9 +44,11 @@ def test_entropy_separates_random_from_structured():
 
 
 def test_secret_regex_matches_a_real_literal():
-    # rp:allow secret-literal — a fixture for the detector, not a credential.
-    m = sensors._SECRET_RE.search('api_key = "sk_live_9Fq2XbTn4vKpZ7wLmR3d"')
-    assert m and m.group(2) == "sk_live_9Fq2XbTn4vKpZ7wLmR3d"
+    # The marker has to sit on the matching line itself — the filter is
+    # line-scoped, and a marker on the comment above does nothing.
+    m = sensors._SECRET_RE.search(
+        'api_key = "sk_live_9Fq2XbTn4vKpZ7wLmR3d"')  # rp:allow secret-literal
+    assert m and m.group(2) == "sk_live_9Fq2XbTn4vKpZ7wLmR3d"  # rp:allow
 
 
 # --- doc drift --------------------------------------------------------------
@@ -91,30 +93,41 @@ def test_a_suggestion_weighs_less_than_a_finding():
 
 # --- co-change --------------------------------------------------------------
 
+class _Route:
+    @staticmethod
+    def route_and_key(p):
+        return "proj", p
+
+
+def _fake_log(monkeypatch, commits, subject="work"):
+    """Feed the history walk a synthetic log.
+
+    Patches `history.git` rather than `shape.git`: co-change now reads the
+    history module's single walk instead of running its own, so patching the
+    old seam left the tests passing against nothing.
+    """
+    import time as _t
+
+    from rp import history
+
+    now = _t.time()
+    raw = "".join(
+        f"\x01{now - i * 3600:.0f}\x02{subject}\n" + "".join(f"{f}\n" for f in files)
+        for i, files in enumerate(commits))
+    history._walk.cache_clear()
+    monkeypatch.setattr(history, "git", lambda repo, *a: raw)
+
+
 def test_co_change_ignores_files_in_the_same_directory(monkeypatch):
     """Files beside each other are expected to move together; saying so drowns
     the pairs that are surprising."""
-    log = "@\nsrc/a.rs\nsrc/b.rs\n" * 10
-    monkeypatch.setattr(shape, "git", lambda repo, *a: log)
-
-    class R:
-        @staticmethod
-        def route_and_key(p):
-            return "proj", p
-
-    assert shape._co_change("repo", R()) == []
+    _fake_log(monkeypatch, [["src/a.rs", "src/b.rs"]] * 10)
+    assert shape._co_change("repo", _Route()) == []
 
 
 def test_co_change_finds_cross_directory_pairs(monkeypatch):
-    log = "@\ncpp/engine.cpp\njava/Bridge.kt\n" * 8
-    monkeypatch.setattr(shape, "git", lambda repo, *a: log)
-
-    class R:
-        @staticmethod
-        def route_and_key(p):
-            return "proj", p
-
-    got = shape._co_change("repo", R())
+    _fake_log(monkeypatch, [["cpp/engine.cpp", "java/Bridge.kt"]] * 8)
+    got = shape._co_change("repo", _Route())
     assert got and got[0][0] == 8
     assert {got[0][1], got[0][2]} == {"cpp/engine.cpp", "java/Bridge.kt"}
 
@@ -122,25 +135,11 @@ def test_co_change_finds_cross_directory_pairs(monkeypatch):
 def test_co_change_ignores_sweeping_commits(monkeypatch):
     """A rename or a reformat couples everything to everything and is evidence
     of nothing."""
-    files = "\n".join(f"d{i}/f{i}.py" for i in range(40))
-    monkeypatch.setattr(shape, "git", lambda repo, *a: f"@\n{files}\n" * 10)
-
-    class R:
-        @staticmethod
-        def route_and_key(p):
-            return "proj", p
-
-    assert shape._co_change("repo", R()) == []
+    _fake_log(monkeypatch, [[f"d{i}/f{i}.py" for i in range(40)]] * 10)
+    assert shape._co_change("repo", _Route()) == []
 
 
 def test_co_change_needs_repetition(monkeypatch):
     """Two files touched together once is a commit, not a relationship."""
-    monkeypatch.setattr(shape, "git", lambda repo, *a:
-                        "@\ncpp/a.cpp\njava/B.kt\n")
-
-    class R:
-        @staticmethod
-        def route_and_key(p):
-            return "proj", p
-
-    assert shape._co_change("repo", R()) == []
+    _fake_log(monkeypatch, [["cpp/a.cpp", "java/B.kt"]])
+    assert shape._co_change("repo", _Route()) == []

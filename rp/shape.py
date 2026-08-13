@@ -162,21 +162,14 @@ def _co_change(repo: str, router) -> list[tuple[int, str, str]]:
     Costs one `git log --name-only`, which the activity sensor already pays for
     elsewhere; the parsing is the only new work.
     """
-    log = git(repo, "log", "--since=180 days ago", "--pretty=format:@", "--name-only")
-    commits: list[list[str]] = []
-    cur: list[str] = []
-    for line in log.splitlines():
-        if line.startswith("@"):
-            if cur:
-                commits.append(cur)
-            cur = []
-        elif line.strip():
-            cur.append(line.strip())
-    if cur:
-        commits.append(cur)
+    # Shares the history module's single walk rather than running its own. Two
+    # modules each doing `git log --name-only` over 180 days for eighteen repos
+    # was the same expensive thing twice.
+    from .history import log as commit_log
 
     pairs: dict[tuple[str, str], int] = {}
-    for files in commits:
+    for commit in commit_log(repo, 180):
+        files = commit.files
         if not (1 < len(files) <= COUPLING_MAX_COMMIT):
             continue
         ours = sorted({f for f in files
