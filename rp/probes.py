@@ -377,6 +377,27 @@ def _history(name: str):
     return probe
 
 
+# --- expectation ------------------------------------------------------------
+
+
+def version_disagreement(root: str, _unused: int = 0) -> float:
+    """1 when the manifest version and the newest release tag disagree."""
+    from . import expectation
+    try:
+        return 1.0 if expectation.version_drift(root) else 0.0
+    except Exception:
+        return UNKNOWN
+
+
+def undeclared_deps(root: str, _unused: int = 0) -> float:
+    """Third-party imports the project never declares."""
+    from . import expectation
+    try:
+        return float(len(expectation.undeclared_imports(root)))
+    except Exception:
+        return UNKNOWN
+
+
 # --- machine ----------------------------------------------------------------
 
 
@@ -505,6 +526,9 @@ PROBES = {
     "big_commits": _history("big_commits"),
     "fix_only_files": _history("fix_only_files"),
     "commits_in": _history("commits_in"),
+    # expectation
+    "version_disagreement": version_disagreement,
+    "undeclared_deps": undeclared_deps,
 }
 
 

@@ -25,7 +25,7 @@ from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from rp import probes, rules, sensors, shape
+from rp import expectation, probes, rules, sensors, shape
 from rp.sensors import REGISTRY, git
 from rp.serve import brief, layer1
 from rp.store import Field, Router
@@ -426,6 +426,7 @@ def collect(quiet: bool = False) -> Field:
     depends: dict[str, int] = {}
     coupled: list[tuple[int, str, str]] = []
     rule_findings: dict[tuple[str, str], dict] = {}
+    kinds_by_label: dict[str, list] = {}
     # The work is almost entirely waiting on git subprocesses, so the useful
     # width is the repo count, not the core count. Capped at 8 while the fleet
     # was 8 repos, which quietly halved throughput once it became 18.
@@ -440,6 +441,7 @@ def collect(quiet: bool = False) -> Field:
             for name in CHANNEL:
                 merged[name].update(res.get(name, {}))
             repo_meta = res.get("meta", {})
+            kinds_by_label[repo_label] = res.get("kinds", [])
             sh = res.get("shape") or {}
             fan_in.update(sh.get("fan_in", {}))
             depends.update(sh.get("depends", {}))
@@ -477,6 +479,18 @@ def collect(quiet: bool = False) -> Field:
 
     for name, per_group in merged.items():
         field.apply_state(CHANNEL[name], name, per_group)
+
+    # Peer-derived expectations. The fleet sets its own norms: if most projects
+    # of a kind have a thing and one does not, that is a gap the system itself
+    # defined, not an opinion anyone encoded. It needs every subject in hand at
+    # once, so it cannot be a per-subject probe.
+    peers = {label: (repo, set(kinds_by_label.get(label, ())))
+             for repo, label in live.items()}
+    for label, missing in expectation.peer_gaps(peers).items():
+        if missing:
+            rule_findings.setdefault(("R", "peer-gap"), {})[label] = (
+                min(1.2 * len(missing), 8.0),
+                {m: 1.0 for m in missing[:4]})
 
     # The machine itself is a subject. "The system drive is full" is not a
     # property of any project -- attaching it to eighteen of them would report

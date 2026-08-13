@@ -42,7 +42,12 @@ class Recognizer:
 RECOGNIZERS: tuple[Recognizer, ...] = (
     Recognizer("repo", (".git/HEAD", ".git"), "a version-controlled tree"),
     Recognizer("rust-crate", ("Cargo.toml",), "a Rust crate or workspace"),
-    Recognizer("python-pkg", ("pyproject.toml", "setup.py", "requirements.txt"),
+    # `requirements.txt` is deliberately not a signature. Plenty of projects in
+    # other languages carry one for a helper script, and matching on it made an
+    # Android app a "Python package" — which then had it compared against
+    # Python peers for its missing README. A loose recognizer is how an
+    # unearned norm gets in through the back door.
+    Recognizer("python-pkg", ("pyproject.toml", "setup.py", "setup.cfg"),
                "a Python package"),
     Recognizer("dart-pkg", ("pubspec.yaml",), "a Dart or Flutter package"),
     Recognizer("node-pkg", ("package.json",), "a Node package"),
@@ -264,6 +269,15 @@ RULES: tuple[Rule, ...] = (
       "R", 0.004, "share of the source tree created in the last 90 days", 1.5),
     R("active", "repo", "commits_in", (30,),
       "B", 0.4, "commits in the last 30 days", 20.0),
+
+    # --- expectation: the subject disagreeing with itself --------------------
+    # No outside standard involved. The project declared both of these things,
+    # and they do not match.
+    R("version-drift", "repo", "version_disagreement", (0,),
+      "R", 3.0, "manifest version disagrees with the newest release tag"),
+    R("undeclared-deps", "python-pkg", "undeclared_deps", (0,),
+      "R", 2.0, "imports never declared as dependencies — works here, not elsewhere",
+      12.0),
 
     # --- review and testing --------------------------------------------------
     R("reviewed", "reviewed", "exists", ("ester_analysis.md",), "G", 1.0,
