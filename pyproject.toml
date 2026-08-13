@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = []
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-authors = [{ name = "Perszus" }]
+authors = [{ name = "Roberts Kains" }]
 
 [project.urls]
 Homepage = "https://github.com/Perszus/relative_pixel_sensors"

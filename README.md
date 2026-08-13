@@ -1,6 +1,6 @@
 # Relative Pixel Sensors
 
-*by [Perszus](https://github.com/Perszus) · Apache-2.0*
+*by Roberts Kains ([@Perszus](https://github.com/Perszus)) · Apache-2.0*
 
 **A nervous system for a machine full of software.**
 
@@ -145,7 +145,7 @@ the output looks agreeable.
 
 ## Licence and attribution
 
-Apache-2.0. Copyright 2026 Perszus.
+Apache-2.0. Copyright 2026 Roberts Kains.
 
 If you redistribute this or a derivative, §4(d) asks you to carry the [`NOTICE`](NOTICE)
 file along with it — that is the one line of credit this project asks for. If you

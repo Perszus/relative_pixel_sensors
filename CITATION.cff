@@ -8,8 +8,9 @@ abstract: >-
   latch onto recognized kinds — accumulating into a decaying attention field that
   answers whether something wants attention before anything pays to find out what.
 authors:
-  - alias: Perszus
-    name: Perszus
+  - given-names: Roberts
+    family-names: Kains
+    alias: Perszus
 repository-code: https://github.com/Perszus/relative_pixel_sensors
 url: https://github.com/Perszus/relative_pixel_sensors
 license: Apache-2.0
