@@ -221,14 +221,33 @@ def _load_sizes() -> dict:
 
 
 def _dir_size_gb(path: str) -> float:
+    """Bytes actually occupied, counting no file twice.
+
+    Content-addressed caches are built out of links: HuggingFace keeps one copy
+    in `blobs/` and links it into every `snapshots/` revision that uses it, and
+    package managers hardlink across versions. Following links reported a 128 GB
+    model cache as 289 GB — a 2.26x overstatement of the single largest number
+    in the field, which is exactly the sort of confident wrongness that makes an
+    instrument worth less than nothing.
+
+    `lstat` handles symlinks; the inode set handles hardlinks. Both are needed,
+    because which one a cache uses is a detail of the tool that built it.
+    """
     total = 0
+    seen: set[tuple[int, int]] = set()
     try:
         for dirpath, _, filenames in os.walk(path):
             for fn in filenames:
                 try:
-                    total += os.path.getsize(os.path.join(dirpath, fn))
+                    st = os.lstat(os.path.join(dirpath, fn))
                 except OSError:
-                    pass
+                    continue
+                if st.st_nlink > 1:
+                    key = (st.st_dev, st.st_ino)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                total += st.st_size
             if total > 500 * 1024**3:
                 break
     except OSError:
