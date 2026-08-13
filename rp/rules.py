@@ -109,6 +109,11 @@ class Rule:
     says: str
     cap: float = 24.0
     kind: str = "standing"
+    # What has to exist before this rule can answer at all. A rule that reports
+    # UNKNOWN because nobody has produced its evidence yet is behaving
+    # correctly, and must be distinguishable from one whose probe is broken —
+    # the two look identical from the outside and mean opposite things.
+    needs: str = ""
 
     def evaluate(self, root: str) -> float:
         fn = PROBES.get(self.probe)
@@ -303,6 +308,26 @@ RULES: tuple[Rule, ...] = (
     R("log-errors", ANY, "log_errors", (7,),
       "R", 0.5, "errors written to this project's own logs in the last week",
       10.0),
+
+    # --- execution, read from receipts rather than run -----------------------
+    # The field never executes anything. Someone ran the command through
+    # rpwrap.py because they were going to anyway; this reads what happened.
+    # Every one of these reports UNKNOWN when the receipt predates HEAD, so a
+    # wrapper that stops being used goes quiet instead of reporting a pass.
+    Rule("build-failing", "repo", "run_failed", ("build",), "R", 10.0,
+         "the last recorded build failed at this commit",
+         needs="a build run through rpwrap.py"),
+    Rule("tests-failing-run", "repo", "run_failed", ("test",), "R", 8.0,
+         "the last recorded test run failed at this commit",
+         needs="a test run through rpwrap.py"),
+    Rule("lint-failing", "repo", "run_failed", ("lint",), "R", 3.0,
+         "the last recorded lint run failed at this commit",
+         needs="a lint run through rpwrap.py"),
+
+    # --- remote, read from a snapshot rather than fetched --------------------
+    Rule("vulnerable-deps", "python-pkg", "vulnerable_deps", (0,), "R", 5.0,
+         "declared dependencies with published advisories", cap=20.0,
+         needs="python -m rp.remote --refresh"),
 )
 
 # Machine-wide rules. Not scoped to a subject on disk, because "the system

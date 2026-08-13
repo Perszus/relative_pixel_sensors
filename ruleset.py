@@ -77,6 +77,11 @@ if "--live" in sys.argv:
             state = "no subject of this kind"
         elif answered:
             state = "quiet"
+        elif rule.needs:
+            # UNKNOWN by design, not by fault. The rule is waiting on evidence
+            # nobody has produced yet, which is a different thing from a probe
+            # that cannot answer — and the two look identical from outside.
+            state = f"awaiting evidence — {rule.needs}"
         else:
             state = "PROBE NEVER ANSWERS"
         print(f"  {rid:<24} {state}")

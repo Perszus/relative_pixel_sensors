@@ -145,6 +145,65 @@ def recent_log_errors(root: str, window_days: float = LOG_WINDOW_DAYS) -> tuple[
     return count, example
 
 
+# --- recorded runs (the EXECUTION kind, read as a verdict) -------------------
+
+
+@lru_cache(maxsize=256)
+def runs(root: str) -> tuple[dict, ...]:
+    """Recorded outcomes of commands someone ran through `rpwrap.py`.
+
+    The field never executes anything. A person or a build system ran the
+    command because they were going to anyway, the wrapper left a receipt, and
+    this reads it — which keeps the probe a cheap local read and the kind
+    parasitic.
+    """
+    path = os.path.join(root, ".rp", "runs.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return ()
+    return tuple(r for r in data if isinstance(r, dict))
+
+
+def last_run(root: str, label: str) -> dict | None:
+    matching = [r for r in runs(root) if r.get("label") == label]
+    return matching[-1] if matching else None
+
+
+def run_state(root: str, label: str) -> tuple[str, dict | None]:
+    """('pass' | 'fail' | 'stale' | 'never', record).
+
+    `stale` is the answer that matters. A wrapper that stops being used — the
+    build moves to an IDE, the habit lapses — writes no new receipt, and the
+    last one goes on saying whatever it said. Absence of a recorded failure is
+    not evidence of a success, so a receipt taken at a commit that is no longer
+    HEAD is reported as stale rather than as a pass.
+    """
+    record = last_run(root, label)
+    if record is None:
+        return "never", None
+    head = _head_sha(root)
+    if head and record.get("head") and record["head"] != head:
+        return "stale", record
+    if time.time() - record.get("at", 0) > 14 * DAY:
+        return "stale", record
+    return ("fail" if record.get("code") else "pass"), record
+
+
+@lru_cache(maxsize=256)
+def _head_sha(root: str) -> str:
+    from .sensors import git
+    return git(root, "rev-parse", "HEAD").strip()
+
+
 def clear_caches() -> None:
-    for fn in (test_totals, recent_log_errors):
-        fn.cache_clear()
+    # Tolerant of substitution: a caller that has replaced one of these with a
+    # stub still gets the rest cleared, rather than an AttributeError halfway
+    # through leaving the others stale.
+    for name in ("test_totals", "recent_log_errors", "runs", "_head_sha",
+                 "_last_commit"):
+        fn = globals().get(name)
+        clear = getattr(fn, "cache_clear", None)
+        if clear:
+            clear()

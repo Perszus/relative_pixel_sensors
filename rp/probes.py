@@ -451,6 +451,54 @@ def log_errors(root: str, window_days: int = 7) -> float:
         return UNKNOWN
 
 
+# --- execution (read as a verdict) and remote (read as a snapshot) ----------
+
+
+def run_failed(root: str, label: str) -> float:
+    """1 when the last recorded run of `label` failed, at the current commit.
+
+    UNKNOWN when the receipt is stale or absent. A wrapper that stops being
+    used writes nothing, and its last receipt goes on saying whatever it said —
+    absence of a recorded failure is not evidence of a success.
+    """
+    from . import verdict
+    try:
+        state, _ = verdict.run_state(root, label)
+    except Exception:
+        return UNKNOWN
+    if state == "fail":
+        return 1.0
+    if state == "pass":
+        return 0.0
+    return UNKNOWN
+
+
+def run_unverified(root: str, label: str) -> float:
+    """1 when nothing has recorded a `label` run at the current commit."""
+    from . import verdict
+    try:
+        state, _ = verdict.run_state(root, label)
+    except Exception:
+        return UNKNOWN
+    return 1.0 if state in ("stale", "never") else 0.0
+
+
+def vulnerable_deps(root: str, _unused: int = 0) -> float:
+    """Declared dependencies with known advisories.
+
+    UNKNOWN unless a usable snapshot exists. "Could not check" is not a pass,
+    and for a security-shaped signal that distinction is the only thing that
+    makes it safe to publish at all.
+    """
+    from . import remote
+    try:
+        if not remote.usable():
+            return UNKNOWN
+        return float(remote.advisories_for(root)[0])
+    except Exception:
+        return UNKNOWN
+
+
 # --- machine ----------------------------------------------------------------
 
 
@@ -588,6 +636,11 @@ PROBES = {
     # verdict
     "failing_test_share": failing_test_share,
     "log_errors": log_errors,
+    # execution, via recorded runs
+    "run_failed": run_failed,
+    "run_unverified": run_unverified,
+    # remote, via a local snapshot
+    "vulnerable_deps": vulnerable_deps,
 }
 
 

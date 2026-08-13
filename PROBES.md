@@ -296,16 +296,30 @@ check* — the second is not a pass.
 | expectation | ✓ | ✓ | | ✓ |
 | ambient | ✓ | ✗ | | ✓ |
 | identity | ✓ | ✓ | | ✓ |
-| execution | ✗ | ✗ | ✓ | |
-| remote | ✗ | ✗ | | |
+| execution | ✓* | ✗ | ✓ | ✓ |
+| remote | ✓* | ✗ | | ✓ |
 
-**Nine built. The two that are not are the two that are not parasitic**, and
-they stay behind an explicit door rather than being quietly added.
+**All eleven built.** The two marked `✓*` are parasitic *as probes* because
+they are split: the expensive, unreliable half happens out of band, and the
+probe is a cheap local read of what it left behind.
 
-What `execution` and `remote` would buy is real — whether a thing actually
-works, and whether a dependency has a published advisory — and neither can be
-had without giving up the property everything else here rests on. That is a
-trade worth making deliberately or not at all.
+**Execution** never runs anything. `rpwrap.py` wraps a command someone was
+going to run regardless — `python rpwrap.py build -- cargo build` — passes its
+output and exit code straight through, and writes a receipt carrying the commit
+it was taken at. The probe reads receipts, which makes it a VERDICT read.
+
+**Remote** never fetches. `python -m rp.remote --refresh` queries advisories
+occasionally and writes a snapshot; the probe reads the snapshot.
+
+Both fail the same way if built naively, and both are built against it: a
+wrapper that stops being used writes no receipt, and a fetch that times out
+returns nothing. Either would read as *clean*. So a receipt taken at a commit
+that is no longer HEAD is **stale**, an absent or expired snapshot is
+**UNKNOWN**, and neither is ever reported as a pass. Rules that depend on
+evidence nobody has produced yet declare what they need, so `ruleset.py --live`
+can say *awaiting evidence* rather than accusing the probe of being broken —
+UNKNOWN by design and UNKNOWN by fault look identical from outside and mean
+opposite things.
 
 Nine of eleven are parasitic, which is the whole system's precondition. The two
 that are not are also the two that answer questions nothing else can, so they
