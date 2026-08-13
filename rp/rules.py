@@ -293,6 +293,16 @@ RULES: tuple[Rule, ...] = (
       "nothing has ever reviewed this"),
     R("has-tests", "has-tests", "count", ("**/test_*.py",), "G", 0.2,
       "has a test suite", 4.0),
+
+    # --- verdict: what another tool already concluded ------------------------
+    # Both refuse to answer from expired evidence rather than reporting a stale
+    # pass, because a verdict that keeps looking current after it stopped being
+    # true is the most dangerous failure in the system.
+    R("tests-failing-now", ANY, "failing_test_share", (0,),
+      "R", 0.4, "share of collected tests failing at the last run", 12.0),
+    R("log-errors", ANY, "log_errors", (7,),
+      "R", 0.5, "errors written to this project's own logs in the last week",
+      10.0),
 )
 
 # Machine-wide rules. Not scoped to a subject on disk, because "the system

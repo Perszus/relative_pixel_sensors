@@ -420,6 +420,37 @@ def stale_binaries(root: str, _unused: int = 0) -> float:
         return UNKNOWN
 
 
+# --- verdict ----------------------------------------------------------------
+
+
+def failing_test_share(root: str, _unused: int = 0) -> float:
+    """Failing test files as a percentage of collected tests.
+
+    UNKNOWN rather than zero when the cache has expired: a stale pass is not a
+    pass, and this kind's whole discipline is refusing to answer from evidence
+    that no longer describes the code.
+    """
+    from . import verdict
+    try:
+        if verdict.test_cache_age_days(root) > 3.0:
+            return UNKNOWN
+        failing, total = verdict.test_totals(root)
+        if not total:
+            return UNKNOWN
+        return failing / total * 100.0
+    except Exception:
+        return UNKNOWN
+
+
+def log_errors(root: str, window_days: int = 7) -> float:
+    """Error lines written to the project's own logs inside a window."""
+    from . import verdict
+    try:
+        return float(verdict.recent_log_errors(root, float(window_days))[0])
+    except Exception:
+        return UNKNOWN
+
+
 # --- machine ----------------------------------------------------------------
 
 
@@ -554,6 +585,9 @@ PROBES = {
     # identity
     "duplicate_files": duplicate_files,
     "stale_binaries": stale_binaries,
+    # verdict
+    "failing_test_share": failing_test_share,
+    "log_errors": log_errors,
 }
 
 
