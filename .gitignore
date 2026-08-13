@@ -25,3 +25,4 @@ aliases.json
 
 # A run log of a private fleet, not documentation of the tool.
 results.md
+cachesizes.json

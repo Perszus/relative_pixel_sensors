@@ -311,25 +311,79 @@ MACHINE_RULES: tuple[Rule, ...] = (
 def machine() -> list[Finding]:
     """The environment itself, measured once rather than per subject.
 
-    Thresholds live here rather than in the probe: a probe reports a number and
+    Thresholds live here rather than in the probes: a probe reports a number and
     forms no opinion, so "5% free is bad" is a rule's judgement to make.
+
+    Everything here is a LEVEL. Ambient values are true now and meaningless as
+    history, so they are set rather than accumulated — a disk that was full an
+    hour ago and is fine now reads as fine.
     """
-    from .probes import disk_free_pct, gpu, listening_ports, process_running
+    import string
+
+    from . import ambient
+    from .probes import disk_free_pct, gpu
 
     out: list[Finding] = []
-    for drive, label in (("C", "system drive"), ("F", "work drive")):
-        free = disk_free_pct("", drive)
-        if free < 10.0:
-            # Steep: 9% free is a note, 1% free is an emergency, and a linear
-            # scale reports them as nearly the same thing.
-            weight = min((10.0 - free) ** 2 / 4.0, 24.0)
-            out.append(Finding(f"disk-{drive.lower()}-low", "machine", "machine",
-                               "R", weight,
-                               f"{drive}: is {free:.1f}% free"))
+
+    def say(rule: str, weight: float, words: str) -> None:
+        out.append(Finding(rule, "machine", "machine", "R", weight, words))
+
+    # --- storage. Every fixed volume, not a hardcoded pair.
+    for letter in string.ascii_uppercase:
+        root = f"{letter}:\\"
+        if not os.path.isdir(root):
+            continue
+        free = disk_free_pct("", letter)
+        if free < 12.0:
+            # Steep: 11% free is a note and 1% free is an emergency, and a
+            # linear scale reports them as nearly the same thing.
+            say(f"disk-{letter.lower()}-low", min((12.0 - free) ** 2 / 5.0, 24.0),
+                f"{letter}: is {free:.1f}% free")
+
+    for label, gb in ambient.largest_caches(ambient.KNOWN_CACHES, 20.0):
+        say("cache-large", min(gb / 20.0, 6.0),
+            f"{label} cache is {gb:.0f} GB")
+
+    # --- memory and compute
     used, total = gpu()
     if total and used / total > 0.85:
-        out.append(Finding("vram-pressure", "machine", "machine", "R", 4.0,
-                           f"VRAM {used:.0f} of {total:.0f} MB in use"))
+        say("vram-pressure", 4.0, f"VRAM {used:.0f} of {total:.0f} MB in use")
+    mem = ambient.memory_used_pct()
+    if mem > 90.0:
+        say("memory-pressure", (mem - 90.0), f"memory {mem:.0f}% in use")
+    commit = ambient.commit_used_pct()
+    if commit > 90.0:
+        # Commit exhaustion is what actually fails an allocation; a machine can
+        # have free RAM and no commit left.
+        say("commit-pressure", (commit - 90.0) * 1.5,
+            f"commit charge {commit:.0f}% — allocations will start failing")
+
+    # --- condition
+    if ambient.pending_reboot():
+        say("pending-reboot", 3.0, "a restart is pending — changes may not have "
+                                   "taken effect")
+    up = ambient.uptime_days()
+    if up > 21.0:
+        say("long-uptime", min(up / 21.0, 3.0), f"up {up:.0f} days without a restart")
+
+    failed = ambient.failed_services()
+    if failed:
+        say("services-down", min(len(failed) * 1.5, 8.0),
+            f"{len(failed)} automatic service(s) not running: "
+            f"{', '.join(failed[:3])}")
+
+    tasks = ambient.scheduled_task_failures()
+    if tasks:
+        say("scheduled-tasks-failing", min(tasks * 1.0, 6.0),
+            f"{tasks} scheduled task(s) last ran unsuccessfully")
+
+    models = ambient.resident_models()
+    if models:
+        total_gb = sum(g for _, g in models)
+        if total_gb > 4.0:
+            say("models-resident", min(total_gb / 4.0, 4.0),
+                f"{len(models)} model(s) resident, {total_gb:.1f} GB: "
+                f"{models[0][0]}")
     return out
 
 
