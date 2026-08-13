@@ -82,6 +82,7 @@ whether it stays parasitic, and how it fails.
 ```
 python collect.py              absorb, then print the one-line field
 python collect.py --read       read without absorbing
+python collect.py --glance     the orientation layer -- cheap enough to run unasked
 python collect.py --sensors    the sensor spec sheet
 python collect.py --rediscover re-scan for subjects
 python ruleset.py              the rule table
@@ -92,6 +93,57 @@ python explain.py --rule <id>  one rule, re-evaluated everywhere it applies
 python rpwrap.py test -- <cmd> record what a command did, so the field can read it
 python -m rp.remote --refresh  fetch the advisory snapshot
 ```
+
+### Wiring it into a session
+
+The instrument is worth most before you have any reason to suspect a problem,
+which is exactly when nobody thinks to run it. So don't rely on remembering:
+have something run `--glance` for you.
+
+```
+$ python collect.py --glance
+RELATIVITY PIXELS | measured 9 min ago | 18 projects | 179 regions | 66 quiet
+  !! machine: Y: is 0.3% free
+  stalled - pressure nobody is on: machine, thisnote/lib/services, huthut-snap/crates (+11 more)
+  detail: <path>\BRIEF.txt | explain.py <rule> | ruleset.py --live
+```
+
+It reads the rendered view and nothing else — no absorption, no git, no rule
+table — so it costs about 90ms and roughly 90 tokens, and every failure path
+still exits 0. A missing or unparseable field degrades the session; it must
+never be the reason one fails to open.
+
+Three things and no more: when the field was last measured, every reflex in
+full, and the names of regions under pressure with nobody on them. Magnitudes
+are withheld on purpose — a number with no context invites being acted on, and
+supplying that context is what `BRIEF.txt` is for.
+
+The age comes first because it is the part that fails quietly. Something has to
+keep the view fresh (here, a tray app on a ten-minute tick), and that something
+is sometimes closed. Past six hours the reading says `STALE` and tells you to
+re-collect rather than letting you read a machine that no longer exists.
+
+As a Claude Code `SessionStart` hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command",
+            "command": "python /path/to/collect.py --glance",
+            "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`compact` is included deliberately: losing context to compaction is a
+scope-loss event in the same way opening a new session is.
 
 ### Checking a finding
 
