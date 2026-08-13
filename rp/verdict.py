@@ -36,6 +36,45 @@ _NOT_AN_ERROR = re.compile(r"(?i)(0 errors?|no errors?|errors?:\s*0|error_count=
 
 
 @lru_cache(maxsize=256)
+def uses_pytest(root: str) -> bool:
+    """Is pytest actually this project's runner?
+
+    A `.pytest_cache` proves only that pytest was *run* here once, which is not
+    the same claim. One project in this fleet writes its tests as standalone
+    scripts — documented in its README, run directly, all passing — and carries
+    a stray cache from a single wrong-runner invocation months ago. That cache
+    records a collection crash as five "failing" files, and the failing-test
+    sensor believed it.
+
+    Evidence of intent, not of a past invocation: a pytest config section, or a
+    test file that actually defines pytest-style tests.
+    """
+    for name in ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml"):
+        path = os.path.join(root, name)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                if "[tool.pytest" in fh.read() or "[pytest]" in fh.read():
+                    return True
+        except OSError:
+            continue
+    for folder in ("tests", "test", "."):
+        base = os.path.join(root, folder)
+        if not os.path.isdir(base):
+            continue
+        try:
+            for entry in os.scandir(base):
+                if not (entry.is_file() and entry.name.startswith("test_")
+                        and entry.name.endswith(".py")):
+                    continue
+                with open(entry.path, encoding="utf-8", errors="replace") as fh:
+                    if re.search(r"^\s*(def test_|async def test_)", fh.read(), re.M):
+                        return True
+        except OSError:
+            continue
+    return False
+
+
+@lru_cache(maxsize=256)
 def test_totals(root: str) -> tuple[int, int]:
     """(failing files, total collected tests) from pytest's own cache.
 

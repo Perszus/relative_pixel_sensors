@@ -432,6 +432,11 @@ def failing_test_share(root: str, _unused: int = 0) -> float:
     """
     from . import verdict
     try:
+        # A cache proves pytest ran here once, not that pytest is the runner.
+        # Believing a stray one reported a project whose suite passes as having
+        # five failing files.
+        if not verdict.uses_pytest(root):
+            return UNKNOWN
         if verdict.test_cache_age_days(root) > 3.0:
             return UNKNOWN
         failing, total = verdict.test_totals(root)

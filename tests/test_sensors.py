@@ -65,6 +65,8 @@ def test_tests_failing_ignores_a_verdict_older_than_the_code(tmp_path, monkeypat
     """watcher's pytest cache was seventeen days stale. Published naively that
     is five live failures; in fact it is an opinion about code that no longer
     exists."""
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n",
+                                             encoding="utf-8")
     cache = tmp_path / ".pytest_cache" / "v" / "cache"
     cache.mkdir(parents=True)
     lastfailed = cache / "lastfailed"
@@ -80,6 +82,8 @@ def test_tests_failing_ignores_a_verdict_older_than_the_code(tmp_path, monkeypat
 
 
 def test_tests_failing_reports_a_current_verdict(tmp_path, monkeypatch):
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n",
+                                             encoding="utf-8")
     cache = tmp_path / ".pytest_cache" / "v" / "cache"
     cache.mkdir(parents=True)
     (cache / "lastfailed").write_text(

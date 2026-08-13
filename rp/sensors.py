@@ -379,6 +379,11 @@ def tests_failing(repo: str, router, last_commit: float | None) -> tuple[dict, d
     path = os.path.join(repo, ".pytest_cache", "v", "cache", "lastfailed")
     if not os.path.isfile(path):
         return {}, {}
+    # A cache is evidence that pytest ran, not that pytest is the runner. See
+    # verdict.uses_pytest — a stray one made a passing suite look broken.
+    from .verdict import uses_pytest
+    if not uses_pytest(repo):
+        return {}, {"tests_verdict": "not a pytest project — cache ignored"}
     age = verdict_age(repo, path)
     if age and (age["days"] > STALE_DAYS or age["commits_since"] > STALE_COMMITS):
         n = age["commits_since"]

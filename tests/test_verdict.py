@@ -16,7 +16,12 @@ from rp import probes, verdict
 DAY = 86400.0
 
 
-def _cache(tmp_path, lastfailed=None, nodeids=None, age_days=0.0):
+def _cache(tmp_path, lastfailed=None, nodeids=None, age_days=0.0,
+           declares_pytest=True):
+    if declares_pytest:
+        # Evidence that pytest is the runner, not merely that it once ran.
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\n", encoding="utf-8")
     base = tmp_path / ".pytest_cache" / "v" / "cache"
     base.mkdir(parents=True)
     if lastfailed is not None:
@@ -42,6 +47,38 @@ def test_totals_gives_a_denominator(tmp_path):
 def test_missing_cache_is_zeros_not_an_error(tmp_path):
     verdict.clear_caches()
     assert verdict.test_totals(str(tmp_path)) == (0, 0)
+
+
+def test_a_cache_alone_does_not_make_it_a_pytest_project(tmp_path):
+    """A `.pytest_cache` proves pytest was run here once, which is a different
+    claim. One project in this fleet writes standalone test scripts, run
+    directly and all passing, and carries a stray cache from a single
+    wrong-runner invocation — whose collection crash the cache records as five
+    failing files."""
+    root = _cache(tmp_path, lastfailed={"tests/a.py::x": True}, nodeids=["t"],
+                  declares_pytest=False)
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    (tmp_path / "tests" / "test_thing.py").write_text(
+        "import sys\nprint('checks')\nsys.exit(0)\n", encoding="utf-8")
+    verdict.uses_pytest.cache_clear()
+    assert verdict.uses_pytest(root) is False
+    value = probes.PROBES["failing_test_share"](root, 0)
+    assert value != value          # UNKNOWN, not five failures
+
+
+def test_pytest_style_definitions_are_evidence_of_intent(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_thing.py").write_text(
+        "def test_it():\n    assert True\n", encoding="utf-8")
+    verdict.uses_pytest.cache_clear()
+    assert verdict.uses_pytest(str(tmp_path)) is True
+
+
+def test_a_pytest_config_section_is_evidence_of_intent(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n", encoding="utf-8")
+    verdict.uses_pytest.cache_clear()
+    assert verdict.uses_pytest(str(tmp_path)) is True
 
 
 def test_stale_cache_reports_unknown_not_a_pass(tmp_path):
