@@ -122,7 +122,7 @@ def layer2(field: Field, group: str, now: float | None = None) -> dict:
 
 
 def brief(field: Field, meta: dict, sizes: dict | None = None,
-          now: float | None = None) -> str:
+          shapes: dict | None = None, now: float | None = None) -> str:
     """The telescope: the whole fleet at low magnification, on one screen.
 
     Everything else in this module answers a question about one place. This
@@ -138,6 +138,8 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
     """
     now = time.time() if now is None else now
     sizes = sizes or {}
+    fan_in = (shapes or {}).get("fan_in", {})
+    depends = (shapes or {}).get("depends", {})
     rows = []
     for name, g in field.groups.items():
         if name == UNROUTED:
@@ -152,6 +154,12 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
             # Pressure per source file. The same ten findings mean something
             # different in a four-file region than in a fifty-file one.
             "density": (pressure / n) if n else 0.0,
+            # How many other regions import from this one. Not a channel:
+            # load-bearing is neither good nor bad, it is a property of the
+            # shape, and folding it into pressure would assert that important
+            # code is damaged code.
+            "fan_in": fan_in.get(name, 0),
+            "depends": depends.get(name, 0),
             "profile": r.profile(now),
             "sources": {**r.standing_by_source(), **gr.standing_by_source(),
                         **b.standing_by_source()},
@@ -234,6 +242,16 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
         for s in shapes:
             out.append(f"  · {s}")
 
+    # Where each project starts. The single most useful fact on arriving in an
+    # unfamiliar repo, and the one the rest of this page says nothing about.
+    entries = [(n, m["entries"]) for n, m in sorted(meta.items())
+               if m.get("entries")]
+    if entries:
+        out.append("")
+        out.append("ENTRY POINTS  — where each project starts")
+        for name, es in entries:
+            out.append(f"  {name:<18} {'  '.join(es)}")
+
     if quiet:
         out.append("")
         out.append(f"QUIET  — {len(quiet)} regions with nothing to say; "
@@ -264,6 +282,27 @@ def _constellations(rows: list[dict], meta: dict) -> list[str]:
     out: list[str] = []
     if not rows:
         return out
+
+    # --- load-bearing and damaged.
+    #     The pairing is the point. Pressure ranks where the damage is; fan-in
+    #     says how much of the system is standing on it. A leaf nobody imports
+    #     can carry the same numbers and be a far smaller problem, and the
+    #     ranking on its own cannot tell the two apart.
+    risky = sorted(
+        (x for x in rows if x["fan_in"] >= 2 and x["r"] >= 2.0),
+        key=lambda x: -(x["fan_in"] * x["r"]))[:3]
+    if risky:
+        listed = ", ".join(
+            f"{x['name']} (R{x['r']:.0f}, {x['fan_in']} regions depend on it)"
+            for x in risky)
+        out.append(f"load-bearing and under pressure: {listed}")
+
+    # An "islands" pattern lived here and was cut. It fired on 34 of 117
+    # regions, and inspecting them showed the graph was right: Flutter platform
+    # runners, asset directories and project catch-alls genuinely import
+    # nothing and are imported by nothing. Correct, and not news. A pattern that
+    # cannot stay silent is decoration, and fan-in is still in the view for
+    # anyone who wants to ask the question directly.
 
     # --- concentrated rot: small regions carrying disproportionate pressure.
     #     These are invisible to the ranking, which is by absolute magnitude and

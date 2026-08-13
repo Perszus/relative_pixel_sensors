@@ -56,14 +56,26 @@ vendored library is nobody's job here. A vendor bump is still real work.
 opinion about one snapshot; once the code moves past it, the opinion is not wrong so
 much as about something else.
 
+**Structure is not a channel.** How load-bearing a region is — how many others
+import from it — is neither good nor bad, so folding it into pressure would assert
+that important code is damaged code. It sits alongside, and the *pair* is what
+ranks: a region twenty things depend on is a different proposition under the same
+pressure than a leaf nobody touches, and pressure alone cannot tell them apart.
+
 **Channels do not share a scale.** One commit touches thirty files while one finding
 is one finding. Bands are calibrated per channel rather than forcing the weights to
 agree, because making them agree would mean falsifying what each sensor measures.
 
 ## Tests
 
-    python -m pytest          the invariants — 56 tests, fast
+    python -m pytest          the invariants — 76 tests, fast
     python run_experiments.py the mechanism benchmarks (M-series, ~30s)
+    python audit.py           the field's claims vs independently derived facts
+
+`audit.py` deliberately shares no code with the sensors: it walks the filesystem
+instead of reading git's index and parses reports directly instead of through the
+sensor, because an audit sharing a code path only proves the code agrees with
+itself. It found two real bugs on its first run.
 
 Every test in `tests/` corresponds to a bug that actually happened, not to a line
 that wanted covering. The epoch-zero sentinel, the backward read, judgments that

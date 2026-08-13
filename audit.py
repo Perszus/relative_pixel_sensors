@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OK, BAD, SKIP = "OK   ", "WRONG", "  -  "
@@ -61,6 +62,8 @@ def main() -> int:
 
     print("=" * 78)
     print("AUDIT — the field's claims vs independently derived facts")
+    print(f"field collected {(time.time() - view.get('collected_at', 0))/60:.0f} "
+          f"min ago · {len(regions)} regions · {len(fleet)} repos")
     print("=" * 78)
 
     # ---- 1. "no tests at all in N projects" ------------------------------
@@ -126,8 +129,16 @@ def main() -> int:
               "" if verdict == OK else f"on disk: {sorted(actually)}")
 
     # ---- 4. uncommitted files --------------------------------------------
+    # Uncommitted-file counts change every time anyone saves. Comparing a field
+    # collected minutes ago against live `git status` produces a mismatch that
+    # says nothing about the field -- the first run of this check "failed"
+    # because a test file had been created between collection and audit.
+    age = time.time() - view.get("collected_at", 0)
     m = re.search(r"(\d+) uncommitted files in ([^\n]+)", brief)
-    if m:
+    if m and age > 120:
+        check(SKIP, f"uncommitted files — field is {age/60:.0f} min old and this "
+                    f"claim changes on every save; re-run collect.py to check it")
+    elif m:
         claimed_n, claimed_where = int(m.group(1)), \
             {s.strip() for s in m.group(2).split(",") if s.strip()}
         actual_n, actual_where = 0, set()
@@ -215,6 +226,29 @@ def main() -> int:
             wrong.append(f"{name}: directory does not exist")
     check(OK if not wrong else BAD, "every sized region maps to a real directory",
           "" if not wrong else str(wrong[:3]))
+
+    # ---- 8. the load-bearing claim ---------------------------------------
+    m = re.search(r"load-bearing and under pressure: (\S+) \(R[\d.]+, (\d+) regions", brief)
+    if m:
+        name, claimed_fan = m.group(1), int(m.group(2))
+        label = name.split("/", 1)[0]
+        repo = by_label.get(label)
+        sub = name.split("/", 1)[1] if "/" in name else ""
+        if repo and os.path.isdir(repo):
+            # Independent: grep the repo for imports naming any file in that
+            # region, and count how many *other* regions those importers sit in.
+            leaf = sub.rsplit("/", 1)[-1] if sub else ""
+            hits = sh(repo, "grep", "-I", "-l", "-E",
+                      rf"(import|use|from).*{re.escape(leaf)}")
+            importers = {h.strip() for h in hits.splitlines() if h.strip()}
+            outside = {h for h in importers if not h.startswith(sub + "/")}
+            verdict = OK if (claimed_fan > 0 and outside) else BAD
+            check(verdict,
+                  f"load-bearing claim for {name}: {claimed_fan} dependents",
+                  "" if verdict == OK else
+                  f"grep finds no importers outside the region")
+        else:
+            check(SKIP, "load-bearing claim — repo not on disk")
 
     print("\n" + "=" * 78)
     bad = sum(1 for v, _ in results if v == BAD)

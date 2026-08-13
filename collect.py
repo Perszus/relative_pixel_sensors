@@ -25,7 +25,7 @@ from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from rp import sensors
+from rp import sensors, shape
 from rp.sensors import REGISTRY, git
 from rp.serve import brief, layer1
 from rp.store import Field, Router
@@ -128,25 +128,27 @@ def load_json(path: str, default):
 
 
 @lru_cache(maxsize=64)
-def _tracked_source(repo: str) -> tuple[str, ...]:
-    """Tracked source files, from git's index. Sizing routing by source alone
-    keeps assets, generated output and vendored trees from inventing regions
-    nobody would ever want to look at.
+def _ls_files(repo: str) -> tuple[str, ...]:
+    """Every tracked path, once per pass.
 
-    Cached because routing and region sizing both want it, and one `git
-    ls-files` per repo per pass is the whole budget for knowing the shape of
-    the fleet.
+    Four callers wanted this list — routing, region sizing, the structural
+    sensors and the shape graph — and three of them were spawning their own
+    `git ls-files`. On eighteen repos that is thirty-six redundant process
+    spawns, which on Windows is most of the cost of a pass.
     """
-    return tuple(
-        f for f in git(repo, "ls-files").splitlines()
-        if f.strip().endswith(sensors.SOURCE_SUFFIX) and sensors.is_ours(f)
-    )
+    return tuple(f for f in git(repo, "ls-files").splitlines() if f.strip())
 
 
-@lru_cache(maxsize=64)
-def _tracked_all(repo: str) -> tuple[str, ...]:
-    return tuple(f for f in git(repo, "ls-files").splitlines()
-                 if f.strip() and sensors.is_ours(f))
+def _tracked_source(repo: str) -> list[str]:
+    """Tracked source files that are ours. Sizing routing by source alone keeps
+    assets, generated output and vendored trees from inventing regions nobody
+    would ever want to look at."""
+    return [f for f in _ls_files(repo)
+            if f.endswith(sensors.SOURCE_SUFFIX) and sensors.is_ours(f)]
+
+
+def _tracked_all(repo: str) -> list[str]:
+    return [f for f in _ls_files(repo) if sensors.is_ours(f)]
 
 
 def region_sizes(live: dict[str, str], router: Router) -> dict[str, int]:
@@ -192,7 +194,7 @@ def load_fleet(rediscover: bool = False) -> dict[str, str]:
 
 def build_router(fleet: dict[str, str]) -> Router:
     live = {k: v for k, v in fleet.items() if os.path.isdir(k)}
-    return Router.from_index(live, lambda r: list(_tracked_source(r)))
+    return Router.from_index(live, _tracked_source)
 
 
 # ---------------------------------------------------------------- event sensor
@@ -249,7 +251,7 @@ def _probe_repo(repo: str, label: str, router) -> dict:
     """Every standing/state sensor for one repo. Pure: touches no shared state,
     so repos can be probed in parallel -- which they are, because the cost here
     is process spawns rather than work."""
-    all_files = [f for f in git(repo, "ls-files").splitlines() if f.strip()]
+    all_files = list(_ls_files(repo))
     last = git(repo, "log", "-1", "--format=%ct").strip()
     last_commit = float(last) if last else None
 
@@ -272,6 +274,7 @@ def _probe_repo(repo: str, label: str, router) -> dict:
         "heavy_files": sensors.heavy_files(repo, router, all_files),
         "conflicts": sensors.conflicts(repo, router),
         "giants": sensors.giants(repo, router, all_files),
+        "shape": shape.analyse(repo, label, router, all_files),
         "meta": meta,
     }
 
@@ -331,6 +334,8 @@ def collect(quiet: bool = False) -> Field:
     # groups belonging to every other repo.
     merged: dict[str, dict] = {k: {} for k in CHANNEL}
     meta: dict[str, dict] = {}
+    fan_in: dict[str, int] = {}
+    depends: dict[str, int] = {}
     # The work is almost entirely waiting on git subprocesses, so the useful
     # width is the repo count, not the core count. Capped at 8 while the fleet
     # was 8 repos, which quietly halved throughput once it became 18.
@@ -343,7 +348,13 @@ def collect(quiet: bool = False) -> Field:
                 continue
             for name in CHANNEL:
                 merged[name].update(res.get(name, {}))
-            meta.update(res.get("meta", {}))
+            repo_meta = res.get("meta", {})
+            sh = res.get("shape") or {}
+            fan_in.update(sh.get("fan_in", {}))
+            depends.update(sh.get("depends", {}))
+            for m in repo_meta.values():
+                m["entries"] = sh.get("entries", [])
+            meta.update(repo_meta)
 
     # Project-scope health is true of every region inside the project: if the
     # repo has CI, CI covers this directory too. Without propagating it, 34 of
@@ -367,11 +378,12 @@ def collect(quiet: bool = False) -> Field:
     }
 
     sizes = region_sizes(live, router)
+    shapes = {"fan_in": fan_in, "depends": depends}
 
     size = field.save(FIELD)
-    write_view(field, VIEW, meta, sizes, live)
+    write_view(field, VIEW, meta, sizes, live, shapes)
     with open(BRIEF, "w", encoding="utf-8") as fh:
-        fh.write(brief(field, meta_view, sizes) + "\n")
+        fh.write(brief(field, meta_view, sizes, shapes) + "\n")
     with open(MARKS, "w", encoding="utf-8") as fh:
         json.dump(marks, fh, indent=2)
     el = time.perf_counter() - t0
@@ -404,7 +416,8 @@ def _still_there(region: str, key: str, live: dict[str, str]) -> bool:
 
 
 def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
-               live: dict[str, str] | None = None) -> None:
+               live: dict[str, str] | None = None,
+               shapes: dict | None = None) -> None:
     """Render the field into exactly what a viewer needs, and nothing more.
 
     Sentinel reads this instead of field.json on purpose. Every rule about what
@@ -443,6 +456,10 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
             "concentration": round(r.concentration(now), 3),
             "pointers": [[k, round(v, 2)] for k, v in pointers],
             "size": (sizes or {}).get(name, 0),
+            # Structure, not condition. How many other regions import from this
+            # one, and how many it imports from.
+            "fan_in": (shapes or {}).get("fan_in", {}).get(name, 0),
+            "depends": (shapes or {}).get("depends", {}).get(name, 0),
         }
         if name in meta:
             m = meta[name]
