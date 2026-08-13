@@ -139,7 +139,7 @@ def verdict_age(repo: str, artifact: str) -> dict | None:
     A test run, a review, a lint pass -- each is an opinion about one snapshot.
     If the code moved afterwards the opinion is not wrong so much as *about
     something else*, and reporting it as current is how a field starts lying
-    confidently. Paranoia's failing-test record was seventeen days stale when
+    confidently. One project's failing-test record was seventeen days stale when
     this was written; without the check, those five failures would have been
     published as live pressure.
 
@@ -218,8 +218,8 @@ def todo(repo: str, router) -> dict:
             continue
         path, _, count = line.rpartition(":")
         # Vendored code is full of other people's TODOs. Counting them was
-        # reporting 38 markers "in orobos" that were all Google's, inside the
-        # Oboe audio library -- a number that is not false so much as about
+        # reporting 38 markers against one project that all belonged to a
+        # vendored audio library -- a number not false so much as about
         # somebody else, which is worse.
         if not is_ours(path):
             continue
@@ -315,7 +315,7 @@ def structure(
     if not all_files:
         return {}, {}, {}
 
-    # Ours only. Counting vendored code made orobos read as 212 untested source
+    # Ours only. Counting vendored code made one project read as 212 untested source
     # files when most of them belong to an audio library nobody here wrote, and
     # made its dominant language "h" for the same reason.
     files = [f for f in all_files if is_ours(f)]

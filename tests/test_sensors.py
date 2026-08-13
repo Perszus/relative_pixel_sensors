@@ -19,7 +19,7 @@ DAY = 86400.0
 @pytest.mark.parametrize("path,ours", [
     ("src/main.rs", True),
     ("lib/widgets/button.dart", True),
-    ("android/third_party/oboe/AudioStream.h", False),
+    ("android/third_party/vendorlib/AudioStream.h", False),
     ("node_modules/left-pad/index.js", False),
     ("archive/cleanup-2026/old.py", False),
     ("backups/src_backup_20260416/Main.kt", False),
@@ -28,7 +28,7 @@ DAY = 86400.0
 ])
 def test_is_ours(path, ours):
     """Pressure from code we did not write is not actionable. Thirty-eight
-    'debt markers in orobos' were all Google's, inside a vendored audio
+    'debt markers in acme' were all Google's, inside a vendored audio
     library -- not false, but about somebody else, which reads as actionable
     and is worse."""
     assert sensors.is_ours(path) is ours
@@ -62,7 +62,7 @@ def test_stale_thresholds_are_a_measure_not_an_assertion():
 
 
 def test_tests_failing_ignores_a_verdict_older_than_the_code(tmp_path, monkeypatch):
-    """Paranoia's pytest cache was seventeen days stale. Published naively that
+    """watcher's pytest cache was seventeen days stale. Published naively that
     is five live failures; in fact it is an opinion about code that no longer
     exists."""
     cache = tmp_path / ".pytest_cache" / "v" / "cache"

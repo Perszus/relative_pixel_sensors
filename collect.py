@@ -103,8 +103,8 @@ def discover_fleet() -> dict[str, str]:
 
     # Two repos sharing a label would silently merge into one set of regions,
     # and the merge is invisible: the field just reports one project's pressure
-    # under another's name. `ester_code_slim` is aliased to "ester" and there is
-    # also a directory literally called "ester".
+    # under another's name. It happens whenever an alias shortens one directory
+    # to a name another directory already has.
     by_label: dict[str, list[str]] = {}
     for path, label in found.items():
         by_label.setdefault(label, []).append(path)
@@ -180,12 +180,12 @@ def _forks(live: dict[str, str]) -> list[tuple[str, str, float]]:
     """Projects that are near-copies of each other.
 
     Compares the actual set of source filenames. A first attempt used language
-    plus a similar source count and paired `ester_code_slim` with `paranoia` --
-    two unrelated Python projects of a similar size. Shared filenames are the
-    thing that actually distinguishes a packaging fork from a coincidence.
+    plus a similar source count, and paired two unrelated Python projects that
+    happened to be a similar size. Shared filenames are what actually
+    distinguishes a packaging fork from a coincidence.
 
-    It matters because five of these repos are forks of three programs, so
-    every count in the brief is quietly reporting the same code more than once.
+    It matters wherever a codebase is forked per distribution target: every
+    count in the brief then reports the same code more than once.
     """
     sigs: dict[str, set[str]] = {}
     for repo, label in live.items():
@@ -417,8 +417,8 @@ def collect(quiet: bool = False) -> Field:
             # `repo_label` comes from the futures map, not from an enclosing
             # loop. Reading `label` here picked up whatever the *events* loop
             # had left bound, so every coupled pair in the fleet was attributed
-            # to one arbitrary project — orobos' JNI pair was reported as
-            # thisnote's.
+            # to one arbitrary project — a JNI pair belonging to one repo was
+            # reported under a different repo's name.
             for n, a, b in sh.get("coupled", []):
                 coupled.append((n, f"{repo_label}/{a}", f"{repo_label}/{b}"))
             for m in repo_meta.values():
@@ -536,7 +536,7 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
             for src, v in ch.standing_by_source().items():
                 standing[src] = round(v, 2)
         # Pointers name files to go and look at, so one naming a file that no
-        # longer exists is worse than none: the top pointer for orobos' java
+        # longer exists is worse than none: the top pointer for one Android project's java
         # region outranked the live file while pointing at a package that had
         # been renamed away. Historically true, and useless as an instruction.
         #

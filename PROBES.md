@@ -237,7 +237,7 @@ should read as fine.
 **Parasitic:** yes. **Deterministic:** yes.
 
 What a thing actually *is*, independently of where it sits or what it is called.
-Paranoia already works this way: a path is not an identity.
+A path is not an identity.
 
 *Niche probes:* content hash · signature valid · publisher · certificate expiry ·
 known-good hash match · licence of a dependency · package version resolved ·

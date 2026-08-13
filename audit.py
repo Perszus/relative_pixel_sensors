@@ -73,7 +73,7 @@ def main() -> int:
         min_src, claimed = int(m.group(2)), \
             {s.strip() for s in m.group(3).split(",") if s.strip()}
         # Mirror the field's own exclusions or this compares two different
-        # questions: purity's only tests live under archive/, and counting them
+        # questions: one project's only tests live under archive/, and counting them
         # made the audit disagree with a field that was right.
         skip = re.compile(r"(^|/)(archive|archived|legacy|backup|backups|old|"
                           r"deprecated|third_party|vendor|node_modules)(/|$)")

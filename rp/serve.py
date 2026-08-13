@@ -345,7 +345,7 @@ def _constellations(rows: list[dict], meta: dict, shapes: dict) -> list[str]:
     # --- structural blind spots: no tests at all
     # The threshold is deliberate -- a project with one source file and no tests
     # is not news -- but it has to be stated. "4 of 18 projects" implies all
-    # eighteen were considered, and an audit caught exactly that: bolwarra has
+    # eighteen were considered, and an audit caught exactly that: a project had
     # no tests, was correctly excluded, and the sentence still read as a sweep.
     MIN_SRC = 10
     considered = [n for n, m in meta.items() if m.get("source", 0) >= MIN_SRC]
@@ -436,8 +436,8 @@ def _constellations(rows: list[dict], meta: dict, shapes: dict) -> list[str]:
 
 
 def _short(path: str) -> str:
-    """`orobos/android/app/src/main/cpp/native_engine.cpp` reads as
-    `orobos:…/native_engine.cpp`. The project and the filename are the parts
+    """`app/android/src/main/cpp/engine.cpp` reads as `app:engine.cpp`.
+    The project and the filename are the parts
     that identify it; the directories in between are noise on one line."""
     label, _, rest = path.partition("/")
     base = rest.rsplit("/", 1)[-1]

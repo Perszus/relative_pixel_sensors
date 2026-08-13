@@ -17,11 +17,11 @@ from rp import shape
     ("use crate::engine::jobs;", "src/ui/view.rs", "engine/jobs"),
     ("pub use crate::ui::theme;", "src/app.rs", "ui/theme"),
     ("mod pixels;", "src/engine/mod.rs", "pixels"),
-    ("import 'package:huts_ui/services/db.dart';", "lib/main.dart",
+    ("import 'package:app_ui/services/db.dart';", "lib/main.dart",
      "services/db"),
     ("import './widgets/button.dart';", "lib/home.dart", "widgets/button"),
-    ("import com.orobos.sequencer.NativeBridge", "MainActivity.kt",
-     "com/orobos/sequencer/NativeBridge"),
+    ("import com.acme.sequencer.NativeBridge", "MainActivity.kt",
+     "com/acme/sequencer/NativeBridge"),
 ])
 def test_module_candidates(line, path, expected):
     assert expected in shape._module_candidates(line, path)
@@ -43,11 +43,11 @@ def test_resolve_prefers_longest_suffix():
 
 
 def test_resolve_drops_leading_package_segments():
-    """`package:huts_ui/services/db` should still find lib/services/db.dart."""
+    """`package:app_ui/services/db` should still find lib/services/db.dart."""
     index = {"lib/services/db": "lib/services/db.dart",
              "services/db": "lib/services/db.dart",
              "db": "lib/services/db.dart"}
-    assert shape._resolve("huts_ui/services/db", index) == "lib/services/db.dart"
+    assert shape._resolve("app_ui/services/db", index) == "lib/services/db.dart"
 
 
 def test_resolve_returns_none_when_nothing_matches():
@@ -91,9 +91,9 @@ def test_analyse_ignores_self_edges(monkeypatch):
 
 def test_analyse_skips_vendored_sources(monkeypatch):
     """Structure we did not write is not structure worth mapping."""
-    files = ["third_party/oboe/AudioStream.h", "src/a.rs"]
+    files = ["third_party/vendorlib/AudioStream.h", "src/a.rs"]
     monkeypatch.setattr(shape, "git", lambda repo, *a:
-                        "third_party/oboe/AudioStream.h:1:use crate::src::a;\n")
+                        "third_party/vendorlib/AudioStream.h:1:use crate::src::a;\n")
 
     class R:
         @staticmethod
