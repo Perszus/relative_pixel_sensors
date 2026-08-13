@@ -487,6 +487,11 @@ def _is_test(path: str) -> bool:
     )
 
 
+# Headers accompany an implementation language; they are not one. Counting them
+# made a Kotlin/C++ Android app report its kind as "h".
+_HEADER_EXT = ("h", "hpp", "hh", "hxx", "d.ts")
+
+
 def _dominant_kind(src: list[str]) -> str:
     counts: dict[str, int] = {}
     for f in src:
@@ -495,7 +500,8 @@ def _dominant_kind(src: list[str]) -> str:
             counts[ext] = counts.get(ext, 0) + 1
     if not counts:
         return "?"
-    return max(counts, key=counts.__getitem__)
+    bodies = {e: n for e, n in counts.items() if e not in _HEADER_EXT}
+    return max(bodies or counts, key=(bodies or counts).__getitem__)
 
 
 def age_desc(epoch: float | None) -> str:

@@ -60,6 +60,16 @@ much as about something else.
 is one finding. Bands are calibrated per channel rather than forcing the weights to
 agree, because making them agree would mean falsifying what each sensor measures.
 
+## Tests
+
+    python -m pytest          the invariants — 56 tests, fast
+    python run_experiments.py the mechanism benchmarks (M-series, ~30s)
+
+Every test in `tests/` corresponds to a bug that actually happened, not to a line
+that wanted covering. The epoch-zero sentinel, the backward read, judgments that
+never cleared, and a label collision that would have merged two projects into one
+set of regions all shipped and were all found by accident.
+
 ## Status
 
 The mechanism is tested (`run_experiments.py`, results in `results.md`): lazy decay

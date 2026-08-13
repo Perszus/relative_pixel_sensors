@@ -1,0 +1,12 @@
+[project]
+name = "relative-pixel-sensors"
+version = "0.1.0"
+description = "A hyperlight attention field over a fleet of repositories"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The package is imported as `rp` and `collect` from the project root.
+pythonpath = ["."]
+addopts = "-q"
