@@ -290,11 +290,17 @@ def _constellations(rows: list[dict], meta: dict) -> list[str]:
                        f"{names} — the rest of the fleet is background")
 
     # --- structural blind spots: no tests at all
-    untested = [n for n, m in meta.items() if m.get("source", 0) >= 10
-                and not m.get("tests")]
+    # The threshold is deliberate -- a project with one source file and no tests
+    # is not news -- but it has to be stated. "4 of 18 projects" implies all
+    # eighteen were considered, and an audit caught exactly that: bolwarra has
+    # no tests, was correctly excluded, and the sentence still read as a sweep.
+    MIN_SRC = 10
+    considered = [n for n, m in meta.items() if m.get("source", 0) >= MIN_SRC]
+    untested = [n for n in considered if not meta[n].get("tests")]
     if untested:
         biggest = max(untested, key=lambda n: meta[n].get("source", 0))
-        out.append(f"no tests at all in {len(untested)} of {len(meta)} projects: "
+        out.append(f"no tests at all in {len(untested)} of the {len(considered)} "
+                   f"projects with {MIN_SRC}+ source files: "
                    f"{', '.join(sorted(untested))} "
                    f"({meta[biggest].get('source')} source files in {biggest} alone)")
 

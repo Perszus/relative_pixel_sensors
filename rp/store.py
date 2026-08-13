@@ -118,16 +118,21 @@ class Router:
         by the group, and repeating it in every pointer was the single largest
         term in resident size (M7).
         """
+        # Match case-insensitively, but slice the ORIGINAL string for the key.
+        # Returning the normalised form stored `MainActivity.kt` as
+        # `mainactivity.kt`, which is not a path anyone can open and breaks
+        # outright on a case-sensitive filesystem.
+        original = path.replace("\\", "/").strip("/")
         p = self._norm(path)
         for prefix, group in self.rules:
             if p == prefix:
                 return group, ""
             if p.startswith(prefix + "/"):
-                return group, p[len(prefix) + 1:]
+                return group, original[len(prefix) + 1:]
         self.unrouted_count += 1
         if len(self.unrouted_samples) < 40:
             self.unrouted_samples.append(path)
-        return None, p
+        return None, original
 
     @classmethod
     def from_tree(cls, roots: dict[str, str], depth: int = 1) -> "Router":

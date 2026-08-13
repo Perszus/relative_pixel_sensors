@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -368,7 +369,7 @@ def collect(quiet: bool = False) -> Field:
     sizes = region_sizes(live, router)
 
     size = field.save(FIELD)
-    write_view(field, VIEW, meta, sizes)
+    write_view(field, VIEW, meta, sizes, live)
     with open(BRIEF, "w", encoding="utf-8") as fh:
         fh.write(brief(field, meta_view, sizes) + "\n")
     with open(MARKS, "w", encoding="utf-8") as fh:
@@ -386,7 +387,24 @@ def collect(quiet: bool = False) -> Field:
     return field
 
 
-def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None) -> None:
+def _still_there(region: str, key: str, live: dict[str, str]) -> bool:
+    """Does this pointer still name a file that exists?
+
+    Keys accumulate and decay; files get renamed and deleted, and nothing tells
+    the field when that happens. A stale key stays weighted for weeks.
+    """
+    key = re.sub(r"\s*\(\d+\s*[KM]B\)$", "", key)
+    label = region.split("/", 1)[0]
+    root = next((p for p, l in live.items() if l == label), None)
+    if root is None:
+        return True  # cannot check; do not silently hide it
+    prefix = region.split("/", 1)[1] if "/" in region else ""
+    return os.path.isfile(os.path.join(root, prefix, key) if prefix
+                          else os.path.join(root, key))
+
+
+def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
+               live: dict[str, str] | None = None) -> None:
     """Render the field into exactly what a viewer needs, and nothing more.
 
     Sentinel reads this instead of field.json on purpose. Every rule about what
@@ -405,10 +423,16 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None) -
         for ch in (r, gr, b):
             for src, v in ch.standing_by_source().items():
                 standing[src] = round(v, 2)
-        pointers = r.pointers(now, 3) or b.pointers(now, 3)
+        # Pointers name files to go and look at, so one naming a file that no
+        # longer exists is worse than none: the top pointer for orobos' java
+        # region outranked the live file while pointing at a package that had
+        # been renamed away. Historically true, and useless as an instruction.
+        pointers = [p for p in (r.pointers(now, 8) or b.pointers(now, 8))
+                    if _still_there(name, p[0], live)][:3]
         if not pointers:
             keys = r.standing_keys() or b.standing_keys()
-            pointers = sorted(keys.items(), key=lambda kv: -kv[1])[:3]
+            pointers = [kv for kv in sorted(keys.items(), key=lambda kv: -kv[1])
+                        if _still_there(name, kv[0], live)][:3]
         entry = {
             "name": name,
             "rgb": [round(r.magnitude(now), 3), round(gr.magnitude(now), 3),
