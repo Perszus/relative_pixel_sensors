@@ -1,5 +1,7 @@
 # Relative Pixel Sensors
 
+*by [Perszus](https://github.com/Perszus) · Apache-2.0*
+
 **A nervous system for a machine full of software.**
 
 It answers *whether* something wants your attention, so that finding out *what* —
@@ -141,4 +143,15 @@ documented guesses — `calibrate.py` measures what each sensor contributes, and
 nothing tunes them, because tuning without ground truth is moving numbers until
 the output looks agreeable.
 
-MIT licensed. Contributions welcome, particularly rules and probe kinds.
+## Licence and attribution
+
+Apache-2.0. Copyright 2026 Perszus.
+
+If you redistribute this or a derivative, §4(d) asks you to carry the [`NOTICE`](NOTICE)
+file along with it — that is the one line of credit this project asks for. If you
+use it in research or writing, [`CITATION.cff`](CITATION.cff) gives GitHub's
+"Cite this repository" button something to hand you.
+
+Contributions welcome, particularly rules and probe kinds. A rule is one line in
+[`rp/rules.py`](rp/rules.py); a probe kind is a section of [`PROBES.md`](PROBES.md)
+that does not exist yet.

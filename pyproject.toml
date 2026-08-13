@@ -1,9 +1,16 @@
 [project]
 name = "relative-pixel-sensors"
 version = "0.1.0"
-description = "A hyperlight attention field over a fleet of repositories"
+description = "A nervous system for a machine full of software"
 requires-python = ">=3.10"
 dependencies = []
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Perszus" }]
+
+[project.urls]
+Homepage = "https://github.com/Perszus/relative_pixel_sensors"
+Source = "https://github.com/Perszus/relative_pixel_sensors"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
