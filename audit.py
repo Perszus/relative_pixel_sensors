@@ -162,7 +162,14 @@ def main() -> int:
         label = name.split("/")[0]
         repo = by_label.get(label)
         sub = name.split("/", 1)[1] if "/" in name else ""
-        if repo and os.path.isdir(repo):
+        if not repo:
+            # `machine` is a subject with no directory behind it. Bailing out
+            # silently dropped this check and the one after it, and the summary
+            # still read "0 wrong" — an audit that quietly stops checking is
+            # the failure mode it exists to prevent.
+            check(SKIP, f"top stalled region is '{name}', which has no tree to "
+                        f"verify against")
+        elif os.path.isdir(repo):
             # Independent: has anything in that subtree been committed recently?
             recent = sh(repo, "log", "--since=14 days ago", "--pretty=format:%h",
                         "--", sub).strip()

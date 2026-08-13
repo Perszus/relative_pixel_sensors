@@ -152,7 +152,12 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
             # code is damaged code.
             "fan_in": fan_in.get(name, 0),
             "depends": depends.get(name, 0),
-            "profile": r.effective_profile(now),
+            # The RAW profile here, not the effective one. The sections already
+            # split on activity, so printing "standing" in a block that means
+            # "no activity" says nothing — while cooling-versus-cold still
+            # distinguishes a region that stopped recently from one that was
+            # never busy.
+            "profile": r.profile(now),
             "sources": {**r.standing_by_source(), **gr.standing_by_source(),
                         **b.standing_by_source()},
             "why": _why(r, gr, b),
@@ -227,11 +232,11 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
                    f"{m.get('source',0):>5} {tests:>6} {vend:>6} {docs:<5} "
                    f"{m.get('last_commit','?'):<12} {kids}{flag}")
 
-    shapes = _constellations(rows, meta)
-    if shapes:
+    patterns = _constellations(rows, meta, shapes or {})
+    if patterns:
         out.append("")
         out.append("PATTERNS  — only visible with the whole fleet in one frame")
-        for s in shapes:
+        for s in patterns:
             out.append(f"  · {s}")
 
     # Where each project starts. The single most useful fact on arriving in an
@@ -260,7 +265,7 @@ def brief(field: Field, meta: dict, sizes: dict | None = None,
     return "\n".join(out)
 
 
-def _constellations(rows: list[dict], meta: dict) -> list[str]:
+def _constellations(rows: list[dict], meta: dict, shapes: dict) -> list[str]:
     """Statements that are only true of the fleet, not of any one project.
 
     This is the layer that justifies keeping every project in one field instead
@@ -274,6 +279,23 @@ def _constellations(rows: list[dict], meta: dict) -> list[str]:
     out: list[str] = []
     if not rows:
         return out
+
+    # --- coupling the dependency graph cannot see.
+    #     Regions that keep changing together without importing each other are
+    #     joined by something the code does not state: a JNI boundary, a shared
+    #     format, a protocol agreed in two places. Editing one and not the
+    #     other is how those break, and nothing else here would show it.
+    for n, a, b in shapes.get("coupled", [])[:2]:
+        out.append(f"{_short(a)} and {_short(b)} changed together {n}x in 180 days "
+                   f"— coupling the import graph cannot see")
+
+    # --- near-duplicate projects.
+    forks = shapes.get("forks", [])
+    if forks:
+        listed = ", ".join(f"{a}≈{b} ({r*100:.0f}%)" for a, b, r in forks[:4])
+        out.append(f"{len(forks)} project pairs share most of their filenames: "
+                   f"{listed} — packaging forks, so their findings are the same "
+                   f"findings counted more than once")
 
     # --- load-bearing and damaged.
     #     The pairing is the point. Pressure ranks where the damage is; fan-in
@@ -413,6 +435,15 @@ def _constellations(rows: list[dict], meta: dict) -> list[str]:
     return out
 
 
+def _short(path: str) -> str:
+    """`orobos/android/app/src/main/cpp/native_engine.cpp` reads as
+    `orobos:…/native_engine.cpp`. The project and the filename are the parts
+    that identify it; the directories in between are noise on one line."""
+    label, _, rest = path.partition("/")
+    base = rest.rsplit("/", 1)[-1]
+    return f"{label}:{base}" if rest else path
+
+
 def _why(r, gr, b) -> str:
     """One clause explaining the reading, in the sensors' own terms."""
     def plural(n: float, one: str, many: str) -> str:
@@ -434,6 +465,11 @@ def _why(r, gr, b) -> str:
         bits.append(plural(src["todo"] / 0.5, "debt marker", "debt markers"))
     if src.get("unpushed"):
         bits.append(plural(src["unpushed"] / 2.0, "unpushed commit", "unpushed commits"))
+    if src.get("secrets"):
+        bits.append(plural(src["secrets"] / 8.0, "CREDENTIAL LITERAL",
+                           "CREDENTIAL LITERALS"))
+    if src.get("doc_drift"):
+        bits.append("README behind the code")
     if src.get("conflicts"):
         bits.append(plural(src["conflicts"] / 6.0, "CONFLICT MARKER committed",
                            "files with CONFLICT MARKERS committed"))
@@ -447,6 +483,15 @@ def _why(r, gr, b) -> str:
     wip = b.standing_by_source().get("wip")
     if wip:
         bits.append(plural(wip / 1.5, "file uncommitted", "files uncommitted"))
+    # Rules speak for themselves. Each carries its own phrasing, so the reason
+    # text does not need a branch per rule — which is the whole point of rules
+    # being data.
+    for source, value in sorted(src.items(), key=lambda kv: -kv[1]):
+        if not source.startswith("rule:") or len(bits) >= 3:
+            continue
+        said = r.level_keys.get(source, {})
+        bits.append(next(iter(said), source[5:]))
+
     if not bits:
         bits.append("recent repair commits" if r.read(time.time())[1] > 0 else "—")
     return " · ".join(bits)

@@ -25,7 +25,7 @@ from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from rp import sensors, shape
+from rp import probes, rules, sensors, shape
 from rp.sensors import REGISTRY, git
 from rp.serve import brief, layer1
 from rp.store import Field, Router
@@ -35,6 +35,7 @@ FIELD = os.path.join(HERE, "field.json")
 VIEW = os.path.join(HERE, "view.json")
 BRIEF = os.path.join(HERE, "BRIEF.txt")
 MARKS = os.path.join(HERE, "watermarks.json")
+SHAPES = os.path.join(HERE, "shapes.json")
 FLEET_CFG = os.path.join(HERE, "fleet.json")
 
 # Where repos live. Discovery beats a hand-written list: the first version of
@@ -176,6 +177,34 @@ def region_sizes(live: dict[str, str], router: Router) -> dict[str, int]:
     return sizes
 
 
+def _forks(live: dict[str, str]) -> list[tuple[str, str, float]]:
+    """Projects that are near-copies of each other.
+
+    Compares the actual set of source filenames. A first attempt used language
+    plus a similar source count and paired `ester_code_slim` with `paranoia` --
+    two unrelated Python projects of a similar size. Shared filenames are the
+    thing that actually distinguishes a packaging fork from a coincidence.
+
+    It matters because five of these repos are forks of three programs, so
+    every count in the brief is quietly reporting the same code more than once.
+    """
+    sigs: dict[str, set[str]] = {}
+    for repo, label in live.items():
+        names = {os.path.basename(f) for f in _tracked_source(repo)}
+        if len(names) >= 8:
+            sigs[label] = names
+    out: list[tuple[str, str, float]] = []
+    labels = sorted(sigs)
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            sa, sb = sigs[a], sigs[b]
+            overlap = len(sa & sb) / min(len(sa), len(sb))
+            if overlap >= 0.75:
+                out.append((a, b, overlap))
+    out.sort(key=lambda t: -t[2])
+    return out
+
+
 def load_fleet(rediscover: bool = False) -> dict[str, str]:
     """The watched fleet: whatever fleet.json says, or discovery if it is absent.
 
@@ -247,7 +276,7 @@ def ingest_git(field: Field, repo: str, label: str, marks: dict) -> tuple[int, s
 
 # ---------------------------------------------------------------- the pass
 
-def _probe_repo(repo: str, label: str, router) -> dict:
+def _probe_repo(repo: str, label: str, router, shape_cache: dict) -> dict:
     """Every standing/state sensor for one repo. Pure: touches no shared state,
     so repos can be probed in parallel -- which they are, because the cost here
     is process spawns rather than work."""
@@ -274,9 +303,34 @@ def _probe_repo(repo: str, label: str, router) -> dict:
         "heavy_files": sensors.heavy_files(repo, router, all_files),
         "conflicts": sensors.conflicts(repo, router),
         "giants": sensors.giants(repo, router, all_files),
-        "shape": shape.analyse(repo, label, router, all_files),
+        "secrets": sensors.secrets(repo, router),
+        "doc_drift": sensors.doc_drift(repo, label, all_files),
+        "suggestions": sensors.suggestions(repo, label),
+        "shape": _shape_for(repo, label, router, all_files, shape_cache),
+        "rules": rules.evaluate(label, repo, rules.recognize(repo)),
+        "kinds": sorted(rules.recognize(repo)),
         "meta": meta,
     }
+
+
+def _shape_for(repo: str, label: str, router, all_files: list[str],
+               cache: dict) -> dict:
+    """Structure, recomputed only when the repo has actually moved.
+
+    Co-change walks 180 days of `git log --name-only` per repo, which took a
+    steady-state pass from 3.6s to 10s — and every one of those walks returned
+    an identical answer, because a dependency graph does not change when
+    nothing is committed. Keyed on HEAD: if the sha is the same, so is the
+    shape.
+    """
+    head = git(repo, "rev-parse", "HEAD").strip()
+    hit = cache.get(label)
+    if head and hit and hit.get("head") == head:
+        return hit["shape"]
+    result = shape.analyse(repo, label, router, all_files)
+    if head:
+        cache[label] = {"head": head, "shape": result}
+    return result
 
 
 # Which channel each standing/state sensor writes to.
@@ -294,9 +348,14 @@ CHANNEL = {
     "heavy_files": "R",
     "conflicts": "R",
     "giants": "R",
+    "secrets": "R",
+    "doc_drift": "R",
+    "suggestions": "G",
 }
 
 # Project-scope health that every region inside the project inherits.
+# `suggestions` deliberately does not: an idea offered about one part of a
+# project does not vouch for the rest of it.
 PROPAGATES = ("tested", "documented", "ci")
 
 
@@ -317,6 +376,7 @@ def collect(quiet: bool = False) -> Field:
     router = build_router(live)
     field = Field.load(FIELD, router) if os.path.isfile(FIELD) else Field(router)
     marks = load_json(MARKS, {})
+    shape_cache = load_json(SHAPES, {})
 
     t0 = time.perf_counter()
 
@@ -336,12 +396,15 @@ def collect(quiet: bool = False) -> Field:
     meta: dict[str, dict] = {}
     fan_in: dict[str, int] = {}
     depends: dict[str, int] = {}
+    coupled: list[tuple[int, str, str]] = []
+    rule_findings: dict[tuple[str, str], dict] = {}
     # The work is almost entirely waiting on git subprocesses, so the useful
     # width is the repo count, not the core count. Capped at 8 while the fleet
     # was 8 repos, which quietly halved throughput once it became 18.
     with ThreadPoolExecutor(max_workers=min(24, len(live) or 1)) as pool:
-        futures = {pool.submit(_probe_repo, r, l, router): l for r, l in live.items()}
-        for fut in futures:
+        futures = {pool.submit(_probe_repo, r, l, router, shape_cache): l
+                   for r, l in live.items()}
+        for fut, repo_label in futures.items():
             try:
                 res = fut.result()
             except Exception:
@@ -352,9 +415,25 @@ def collect(quiet: bool = False) -> Field:
             sh = res.get("shape") or {}
             fan_in.update(sh.get("fan_in", {}))
             depends.update(sh.get("depends", {}))
+            # `repo_label` comes from the futures map, not from an enclosing
+            # loop. Reading `label` here picked up whatever the *events* loop
+            # had left bound, so every coupled pair in the fleet was attributed
+            # to one arbitrary project — orobos' JNI pair was reported as
+            # thisnote's.
+            for n, a, b in sh.get("coupled", []):
+                coupled.append((n, f"{repo_label}/{a}", f"{repo_label}/{b}"))
             for m in repo_meta.values():
                 m["entries"] = sh.get("entries", [])
+                m["kinds"] = res.get("kinds", [])
             meta.update(repo_meta)
+
+            # One source per rule, so a rule can be wrong without being
+            # anonymous. At this volume nobody audits rules individually; what
+            # makes that survivable is that the field can always say which one
+            # spoke and about what.
+            for f in res.get("rules", []):
+                rule_findings.setdefault((f.channel, f.rule), {})[f.subject] = \
+                    (f.value, {f.says: f.value})
 
     # Project-scope health is true of every region inside the project: if the
     # repo has CI, CI covers this directory too. Without propagating it, 34 of
@@ -371,6 +450,23 @@ def collect(quiet: bool = False) -> Field:
     for name, per_group in merged.items():
         field.apply_state(CHANNEL[name], name, per_group)
 
+    # The machine itself is a subject. "The system drive is full" is not a
+    # property of any project -- attaching it to eighteen of them would report
+    # one fact eighteen times -- so it gets a region of its own.
+    for f in rules.machine():
+        rule_findings.setdefault((f.channel, f.rule), {})[f.subject] = \
+            (f.value, {f.says: f.value})
+
+    # Rule sources are namespaced so they cannot collide with the hand-written
+    # sensors, and so `sources` in the view reads as a rule id.
+    for (channel, rule_id), per_subject in rule_findings.items():
+        field.apply_state(channel, f"rule:{rule_id}", per_subject)
+    # Retract rules that fired last pass and found nothing this one.
+    for rule in (*rules.RULES, *rules.MACHINE_RULES):
+        key = (rule.chan, rule.id)
+        if rule.chan and key not in rule_findings:
+            field.apply_state(rule.chan, f"rule:{rule.id}", {})
+
     # Normalise meta for the readers: they want "20d ago", not an epoch.
     meta_view = {
         name: {**m, "last_commit": sensors.age_desc(m.get("last_commit"))}
@@ -378,7 +474,9 @@ def collect(quiet: bool = False) -> Field:
     }
 
     sizes = region_sizes(live, router)
-    shapes = {"fan_in": fan_in, "depends": depends}
+    coupled.sort(reverse=True)
+    shapes = {"fan_in": fan_in, "depends": depends, "coupled": coupled[:5],
+              "forks": _forks(live)}
 
     size = field.save(FIELD)
     write_view(field, VIEW, meta, sizes, live, shapes)
@@ -386,6 +484,8 @@ def collect(quiet: bool = False) -> Field:
         fh.write(brief(field, meta_view, sizes, shapes) + "\n")
     with open(MARKS, "w", encoding="utf-8") as fh:
         json.dump(marks, fh, indent=2)
+    with open(SHAPES, "w", encoding="utf-8") as fh:
+        json.dump(shape_cache, fh, separators=(",", ":"))
     el = time.perf_counter() - t0
 
     if not quiet:

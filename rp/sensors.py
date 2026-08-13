@@ -21,7 +21,9 @@ recalibrating is one edit.
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -45,6 +47,9 @@ W_LOCK_DRIFT = 2.0    # per manifest that outran its lockfile
 W_HEAVY = 1.0         # per oversized file committed
 W_CONFLICT = 6.0      # per file with committed conflict markers
 W_GIANT = 1.0         # per outsized source file
+W_SECRET = 8.0        # per credential-shaped literal
+W_DOC_DRIFT = 1.5     # scaled by how far behind
+W_SUGGESTION = 0.5    # per open suggestion; a good idea is not a defect
 
 # A tracked file bigger than this is almost never source.
 HEAVY_BYTES = 2_000_000
@@ -119,6 +124,12 @@ REGISTRY: tuple[Spec, ...] = (
          "Committed merge-conflict markers. Unambiguously broken."),
     Spec("giants", "R", "standing", "file", "when the file is split",
          f"Source files over {GIANT_BYTES // 1000} KB. Too big to hold in one head."),
+    Spec("secrets", "R", "standing", "file", "when the literal is removed",
+         "Credential-shaped literals committed to source."),
+    Spec("doc_drift", "R", "standing", "project", "when docs are updated",
+         "README left behind by the code it describes."),
+    Spec("suggestions", "G", "standing", "project", "when acted on or dropped",
+         "Ester's idea ledger — improvements offered and not yet taken up."),
 )
 
 
@@ -412,6 +423,111 @@ def lock_drift(repo: str, label: str, files: list[str]) -> dict:
     if not drifted:
         return {}
     return {label: (W_LOCK_DRIFT * len(drifted), drifted)}
+
+
+# A credential-shaped LITERAL, not a variable called `token`. The first version
+# of this matched `token = credentials.credentials` and `_hasPassword =
+# MutableStateFlow(...)` -- 100% false positives across six repos, which is how
+# a sensor teaches you to ignore it.
+_SECRET_RE = re.compile(
+    r"""(?ix)
+    (api[_-]?key|secret|passwd|password|auth[_-]?token|access[_-]?token
+     |bearer|private[_-]?key|client[_-]?secret)
+    \s* [:=] \s*
+    ["']([A-Za-z0-9/+=_.\-]{20,})["']
+    """)
+
+# Values that are shaped like secrets and are not. Placeholders are the common
+# case in exactly the files this sensor looks at.
+_NOT_A_SECRET = re.compile(
+    r"(?i)^(x{4,}|y{4,}|\.{3,}|<.*>|\$\{.*\}|%\w+%|change[_-]?me|your[_-]?\w+"
+    r"|example|placeholder|dummy|sample|test|todo|none|null|true|false"
+    r"|[0-9.]+)$")
+
+
+def _entropy(s: str) -> float:
+    """Shannon entropy per character. A real key is close to random; an
+    identifier, a path or a version string is not."""
+    if not s:
+        return 0.0
+    counts: dict[str, int] = {}
+    for ch in s:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
+
+def secrets(repo: str, router) -> dict:
+    """Credential-shaped literals committed to source.
+
+    Normally silent, like `conflicts` — and silence is the expected answer.
+    Weighted heavily because the consequence is not "some rework".
+    """
+    out: dict = {}
+    args = ["grep", "-I", "-n", "-E", "-i",
+            r"(api[_-]?key|secret|passwd|password|token|bearer|private[_-]?key)"
+            r"[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9/+=_.-]{20,}[\"']",
+            "--", *SOURCE_EXT, "*.json", "*.yaml", "*.yml", "*.toml",
+            "*.env", "*.cfg", "*.ini"]
+    for raw in git(repo, *args).splitlines():
+        path, _, rest = raw.partition(":")
+        _, _, line = rest.partition(":")
+        if not path or not is_ours(path):
+            continue
+        m = _SECRET_RE.search(line)
+        if not m:
+            continue
+        value = m.group(2)
+        if _NOT_A_SECRET.match(value) or _entropy(value) < 3.2:
+            continue
+        g, rel = router.route_and_key(f"{repo}/{path}")
+        if g:
+            _add(out, g, W_SECRET, f"{rel} ({m.group(1).lower()})")
+    return out
+
+
+def doc_drift(repo: str, label: str, files: list[str]) -> dict:
+    """How far the README has fallen behind the code it describes.
+
+    Scaled rather than binary: a README twenty commits old is aging, one that
+    has not moved in two hundred is describing a different program.
+    """
+    if "README.md" not in set(files):
+        return {}
+    stamp = git(repo, "log", "-1", "--format=%ct", "--", "README.md").strip()
+    if not stamp:
+        return {}
+    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(float(stamp)))
+    raw = git(repo, "rev-list", "--count", f"--since={since}", "HEAD").strip()
+    try:
+        behind = int(raw)
+    except ValueError:
+        return {}
+    if behind < 25:
+        return {}
+    weight = W_DOC_DRIFT * min(behind / 25.0, 4.0)
+    return {label: (weight, {f"README is {behind} commits behind": float(behind)})}
+
+
+def suggestions(repo: str, label: str) -> dict:
+    """Ester's idea ledger, which nothing was reading.
+
+    Lands on health rather than pressure, and deliberately weighted low: an
+    unacted-on good idea is not a defect. What it measures is that someone
+    looked and had something to say -- forty-seven of these were sitting
+    unread across fourteen repos.
+    """
+    path = os.path.join(repo, "ester_suggestions.md")
+    if not os.path.isfile(path):
+        return {}
+    n = 0
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.strip().startswith("### ") and "[OPEN]" in line:
+                n += 1
+    if not n:
+        return {}
+    return {label: (W_SUGGESTION * n, {f"{n} open suggestion(s)": float(n)})}
 
 
 def conflicts(repo: str, router) -> dict:

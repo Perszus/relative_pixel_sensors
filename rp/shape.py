@@ -123,6 +123,8 @@ def analyse(repo: str, label: str, router, files: list[str]) -> dict:
         fan_in[dst] = fan_in.get(dst, 0) + 1
         depends[src] = depends.get(src, 0) + 1
 
+    coupled = _co_change(repo, router)
+
     tracked = set(files)
     entries = [e for e in ENTRY_NAMES if e in tracked]
     # Anything that looks like a program start, wherever it lives.
@@ -130,4 +132,68 @@ def analyse(repo: str, label: str, router, files: list[str]) -> dict:
         base = os.path.basename(f)
         if base in ("main.rs", "main.dart", "main.go", "__main__.py") and f not in entries:
             entries.append(f)
-    return {"fan_in": fan_in, "depends": depends, "entries": sorted(entries)[:4]}
+    return {"fan_in": fan_in, "depends": depends, "coupled": coupled,
+            "entries": sorted(entries)[:4]}
+
+
+# Pairs must recur to count: two files touched together once is a commit, not a
+# relationship.
+COUPLING_MIN = 5
+# Sweeping commits couple everything to everything and say nothing about any of
+# it. A rename, a reformat or a licence header is not evidence of coupling.
+COUPLING_MAX_COMMIT = 12
+
+
+def _co_change(repo: str, router) -> list[tuple[int, str, str]]:
+    """FILES that keep changing together, across region boundaries.
+
+    This finds what imports cannot. `native_engine.cpp` and `NativeBridge.kt`
+    have no import relationship in either direction -- they sit on opposite
+    sides of a JNI boundary -- and they changed together twenty-seven times in
+    six months. That coupling is real, invisible to the dependency graph, and
+    exactly the kind of thing that makes an edit in one place break something
+    in another.
+
+    Deliberately files rather than regions. Aggregating to regions collapsed the
+    finding into noise: the loudest "coupled pair" became a region and its own
+    parent catch-all, which of course change together, and the JNI pair
+    disappeared into it.
+
+    Costs one `git log --name-only`, which the activity sensor already pays for
+    elsewhere; the parsing is the only new work.
+    """
+    log = git(repo, "log", "--since=180 days ago", "--pretty=format:@", "--name-only")
+    commits: list[list[str]] = []
+    cur: list[str] = []
+    for line in log.splitlines():
+        if line.startswith("@"):
+            if cur:
+                commits.append(cur)
+            cur = []
+        elif line.strip():
+            cur.append(line.strip())
+    if cur:
+        commits.append(cur)
+
+    pairs: dict[tuple[str, str], int] = {}
+    for files in commits:
+        if not (1 < len(files) <= COUPLING_MAX_COMMIT):
+            continue
+        ours = sorted({f for f in files
+                       if is_ours(f) and f.endswith(SOURCE_SUFFIX)})
+        for i in range(len(ours)):
+            for j in range(i + 1, len(ours)):
+                key = (ours[i], ours[j])
+                pairs[key] = pairs.get(key, 0) + 1
+
+    out: list[tuple[int, str, str]] = []
+    for (a, b), n in pairs.items():
+        if n < COUPLING_MIN:
+            continue
+        # Same directory is not a finding: files beside each other are expected
+        # to move together, and saying so drowns the pairs that are surprising.
+        if os.path.dirname(a) == os.path.dirname(b):
+            continue
+        out.append((n, a, b))
+    out.sort(reverse=True)
+    return out[:5]
