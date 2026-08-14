@@ -30,3 +30,5 @@ cachesizes.json
 # Receipts from rpwrap, and the advisory snapshot. Local evidence, not source.
 runs/
 advisories.json
+
+ambient.json

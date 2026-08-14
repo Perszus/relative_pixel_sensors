@@ -697,19 +697,24 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
                 for s in sorted(r.standing_by_source())
                 if s in set((shapes or {}).get("reflex_sources", ()))
             ],
-            # Findings no ordinary tool would have surfaced, in the words they
-            # carry. A magnitude says a region is loud; only the words say
-            # what it is, and "loud" is not oversight -- a reader still has to
-            # go and look. These are what the orientation layer leads with, so
-            # the expensive question is answered before it is asked.
-            "notable": [
+            # Every finding, in the words it carries, flagged by whether an
+            # ordinary tool would already have shown it.
+            #
+            # The flag ranks; it does not filter. Nothing a sensor found is
+            # withheld -- sensors were not built in order to have half of them
+            # switched off, and a reader who has to remember which categories
+            # are suppressed no longer has oversight. What the flag buys is
+            # ordering: the findings that needed history or correlation come
+            # first, because those are the ones no other tool would ever have
+            # told them.
+            "findings": [
                 [
                     s.replace("rule:", ""),
                     _describe(s, r),
                     round(r.standing_by_source().get(s, 0.0), 2),
+                    rules.noteworthy(s.replace("rule:", "")),
                 ]
                 for s in sorted(r.standing_by_source())
-                if rules.noteworthy(s.replace("rule:", ""))
             ],
         }
         if name in meta:

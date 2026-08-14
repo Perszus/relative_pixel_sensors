@@ -56,7 +56,7 @@ def _mark(ch, now: float) -> str:
 
 
 def glance(view: dict, path: str, now: float | None = None,
-           limit: int = 5, stale_after: float = 6 * 3600.0) -> str:
+           limit: int = 40, stale_after: float = 6 * 3600.0) -> str:
     """The orientation layer: what a reader needs *before* they know they need
     anything. Sized to be paid unconditionally at the start of every session.
 
@@ -124,36 +124,45 @@ def glance(view: dict, path: str, now: float | None = None,
     # The instrument's actual output: findings that required history,
     # cross-project correlation, or a comparison against the fleet's own
     # norms. One line each, strongest first, with the words.
-    findings = []
+    earned: dict[str, tuple[float, str, str, int]] = {}
+    ordinary: dict[str, tuple[float, str, str, int]] = {}
+
     for g in groups:
-        for row in g.get("notable") or ():
-            if not isinstance(row, list) or len(row) < 3:
+        for row in g.get("findings") or ():
+            if not isinstance(row, list) or len(row) < 4:
                 continue
-            rule, words, value = row[0], row[1], row[2]
-            findings.append((float(value or 0.0), str(rule), g["name"], str(words)))
-    findings.sort(key=lambda f: -f[0])
+            rule, words, value, noteworthy = str(row[0]), str(row[1]), float(row[2] or 0.0), bool(row[3])
+            bucket = earned if noteworthy else ordinary
+            if rule in bucket:
+                weight, region, first, n = bucket[rule]
+                bucket[rule] = (max(weight, value), region, first, n + 1)
+            else:
+                bucket[rule] = (value, g["name"], words, 1)
 
-    # One line per *kind* of finding, strongest instance first.
-    #
-    # Deduplicating by region was not enough: one prolific sensor took eight
-    # of fourteen lines and the reading became a list of files rather than a
-    # picture of the fleet. A reader given five lines should learn five
-    # different things, so the second instance of a finding they have already
-    # been told about is worth less than the first instance of one they have
-    # not. The count carries the rest.
-    kinds: dict[str, tuple[str, str, int]] = {}
-    for _, rule, region, words in findings:
-        if rule in kinds:
-            first_region, first_words, n = kinds[rule]
-            kinds[rule] = (first_region, first_words, n + 1)
-        else:
-            kinds[rule] = (region, words, 1)
+    def render(bucket: dict) -> list[str]:
+        rows = sorted(bucket.values(), key=lambda v: -v[0])
+        lines = [
+            f"  {region}: {words}" + (f" +{n - 1}" if n > 1 else "")
+            for _, region, words, n in rows[:limit]
+        ]
+        if len(rows) > limit:
+            lines.append(f"  ... {len(rows) - limit} more kinds")
+        return lines
 
-    for rule, (region, words, n) in list(kinds.items())[:limit]:
-        elsewhere = f" +{n - 1} more" if n > 1 else ""
-        out.append(f"  {region}: {words}{elsewhere}")
-    if len(kinds) > limit:
-        out.append(f"  ... {len(kinds) - limit} other kinds of finding")
+    # One line per *kind*, not per region. A single prolific sensor was taking
+    # eight of fourteen lines and the reading became a list of files rather
+    # than a picture of the fleet; the counts carry the repetition.
+    if earned:
+        out.append("  -- needs history, correlation or a fleet norm to see:")
+        out.extend(render(earned))
+
+    # Shown too, always. These are the findings a file manager or a linter
+    # would also have surfaced, so they come second -- but withholding them
+    # would mean the reader has to remember which sensors are muted, and a
+    # reading with known holes in it is not oversight.
+    if ordinary:
+        out.append("  -- also, visible from ordinary tools:")
+        out.extend(render(ordinary))
 
     out.append(f"  detail: {path}\\BRIEF.txt | explain.py <rule> | ruleset.py --live")
     # Enforced rather than assumed: the words above are rule-supplied text, so

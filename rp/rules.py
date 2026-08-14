@@ -115,9 +115,17 @@ VISIBLE_ELSEWHERE = frozenset({
 
 
 def noteworthy(rule_id: str) -> bool:
-    """Is this a finding no ordinary tool would have surfaced?"""
-    # Disk rules are synthesised per volume, so they cannot be named literally.
-    return not (rule_id.startswith("disk-") or rule_id in VISIBLE_ELSEWHERE)
+    """Is this a finding no ordinary tool would have surfaced?
+
+    Ranking only -- nothing is suppressed by this. See `serve.glance`.
+    """
+    # Disk levels are synthesised per volume so cannot be named literally.
+    # Their *trend* is a different matter and stays noteworthy: how full a
+    # volume is sits in any file manager, but how fast it is filling is
+    # visible nowhere unless something wrote yesterday's number down.
+    if rule_id.startswith("disk-") and rule_id.endswith("-low"):
+        return False
+    return rule_id not in VISIBLE_ELSEWHERE
 
 
 @dataclass(frozen=True)
@@ -437,14 +445,34 @@ def machine() -> list[Finding]:
     # no ordinary tool will tell you -- what is accelerating, what is drifting
     # apart, what nothing has vouched for since it changed. Weighted low for
     # the same reason.
+    from . import trend
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    history = trend.load(os.path.join(here, "ambient.json"))
+
     for letter in string.ascii_uppercase:
         root = f"{letter}:\\"
         if not os.path.isdir(root):
             continue
         free = disk_free_pct("", letter)
+        key = f"disk-{letter.lower()}"
+        trend.record(history, key, free)
+
         if free < 12.0:
-            say(f"disk-{letter.lower()}-low", min((12.0 - free) ** 2 / 40.0, 3.0),
+            say(f"{key}-low", min((12.0 - free) ** 2 / 40.0, 3.0),
                 f"{letter}: is {free:.1f}% free")
+
+        # The question a file manager cannot answer. A volume that has sat at
+        # 0.3% for months is a state of the world; one that has lost five
+        # points this week is news, and it is the same reading either way
+        # unless somebody kept the earlier number.
+        fall = trend.falling(history, key, 5.0)
+        if fall:
+            lost, hours = fall
+            say(f"{key}-falling", min(lost, 8.0),
+                f"{letter}: lost {lost:.1f} points of free space in {hours:.0f}h")
+
+    trend.save(os.path.join(here, "ambient.json"), history)
 
     for label, gb in ambient.largest_caches(ambient.KNOWN_CACHES, 20.0):
         say("cache-large", min(gb / 20.0, 6.0),

@@ -31,8 +31,8 @@ def region(name, r=0.0, g=0.0, b=0.0, reflexes=(), notable=()):
         "name": name,
         "rgb": [r, g, b],
         "reflexes": list(reflexes),
-        # [rule id, words, weight] -- see `collect._describe`.
-        "notable": [list(n) for n in notable],
+        # [rule id, words, weight, noteworthy] -- see `collect._describe`.
+        "findings": [list(n) + [True] if len(n) == 3 else list(n) for n in notable],
     }
 
 
@@ -94,7 +94,7 @@ def test_every_reflex_is_shown_in_full():
 
 
 def test_reflexes_are_not_subject_to_the_stalled_limit():
-    """`limit` truncates the stalled list. It must not reach the tier that
+    """`limit` truncates the findings list. It must not reach the tier that
     exists precisely because it cannot wait for a second look."""
     groups = [region(f"p{i}", r=9.0, reflexes=[f"finding {i}"]) for i in range(8)]
     out = glance(view(groups), "P", now=NOW, limit=2)
@@ -106,7 +106,7 @@ def test_quiet_field_shows_no_reflex_lines():
     assert "!!" not in out
 
 
-# --- stalled: names, deliberately without numbers ---------------------------
+# --- findings: everything the sensors saw, intricate first ------------------
 
 def test_findings_are_reported_in_the_words_they_carry():
     """A magnitude says a region is loud; only words say what it is. "Loud"
@@ -140,7 +140,36 @@ def test_one_line_per_kind_so_a_prolific_sensor_cannot_fill_the_reading():
     out = glance(view(groups), "P", now=NOW, limit=5)
     assert out.count("one prolific finding") == 1, "a repeated finding took extra lines"
     assert "the rare one" in out, "the rare finding was crowded out by the loud one"
-    assert "+9 more" in out, "the count of suppressed instances must survive"
+    assert "+9" in out, "the count of suppressed instances must survive"
+
+
+def test_nothing_a_sensor_found_is_withheld():
+    """The sensors were not built in order to have half of them switched off.
+
+    Ordinary findings rank *below* the ones needing history or correlation,
+    and that is the whole of the difference. A reader who has to remember
+    which categories are muted does not have oversight, and a reading with
+    known holes is worse than one that is merely long.
+    """
+    groups = [
+        region("a", r=5.0, notable=[["hotspots", "needed history to see", 5.0, True]]),
+        region("b", r=5.0, notable=[["disk-c-low", "C: is 8% free", 5.0, False]]),
+        region("c", r=5.0, notable=[["long-functions", "functions over 120 lines", 5.0, False]]),
+    ]
+    out = glance(view(groups), "P", now=NOW)
+    for words in ("needed history to see", "C: is 8% free", "functions over 120 lines"):
+        assert words in out, f"withheld: {words}"
+
+
+def test_the_intricate_findings_come_first():
+    groups = [
+        region("ordinary", r=90.0, notable=[["disk-c-low", "C: is 8% free", 90.0, False]]),
+        region("earned", r=1.0, notable=[["hotspots", "needed history to see", 1.0, True]]),
+    ]
+    out = glance(view(groups), "P", now=NOW)
+    assert out.index("needed history to see") < out.index("C: is 8% free"), (
+        "a loud ordinary finding outranked one no other tool could have shown"
+    )
 
 
 def test_findings_are_ordered_by_weight():
