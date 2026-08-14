@@ -26,8 +26,14 @@ def view(groups, at=NOW):
     return {"collected_at": at, "groups": groups}
 
 
-def region(name, r=0.0, g=0.0, b=0.0, reflexes=()):
-    return {"name": name, "rgb": [r, g, b], "reflexes": list(reflexes)}
+def region(name, r=0.0, g=0.0, b=0.0, reflexes=(), notable=()):
+    return {
+        "name": name,
+        "rgb": [r, g, b],
+        "reflexes": list(reflexes),
+        # [rule id, words, weight] -- see `collect._describe`.
+        "notable": [list(n) for n in notable],
+    }
 
 
 # --- staleness: the one thing the reader asked to always be told ------------
@@ -102,29 +108,48 @@ def test_quiet_field_shows_no_reflex_lines():
 
 # --- stalled: names, deliberately without numbers ---------------------------
 
-def test_stalled_is_pressure_without_activity():
-    groups = [
-        region("abandoned", r=8.0, b=0.0),
-        region("worked-on", r=8.0, b=30.0),
-    ]
+def test_findings_are_reported_in_the_words_they_carry():
+    """A magnitude says a region is loud; only words say what it is. "Loud"
+    still leaves the reader to go and look, which is the expensive step."""
+    groups = [region("proj", r=8.0, notable=[["lock_drift", "manifest ahead of lockfile", 4.0]])]
     out = glance(view(groups), "P", now=NOW)
-    assert "abandoned" in out
-    assert "worked-on" not in out
+    assert "manifest ahead of lockfile" in out
+    assert "proj" in out
 
 
-def test_stalled_carries_no_magnitudes():
+def test_findings_carry_no_magnitudes():
     """A number with no context invites being acted on. The brief supplies the
-    context; this layer's job is only to say where to point."""
-    out = glance(view([region("hot", r=54.2, b=0.0)]), "P", now=NOW)
+    context; this layer's job is to say what was found."""
+    out = glance(
+        view([region("hot", r=54.2, notable=[["hotspots", "churn is climbing", 54.2]])]),
+        "P",
+        now=NOW,
+    )
     assert "54" not in out
 
 
-def test_stalled_is_ordered_by_pressure_and_truncated_with_a_count():
-    groups = [region(f"p{i}", r=float(i)) for i in range(1, 12)]
-    out = glance(view(groups), "P", now=NOW, limit=3)
-    line = next(ln for ln in out.splitlines() if "stalled" in ln)
-    assert line.index("p11") < line.index("p10") < line.index("p9")
-    assert "(+7 more)" in line
+def test_one_line_per_kind_so_a_prolific_sensor_cannot_fill_the_reading():
+    """The failure this replaced: a single sensor took eight of fourteen lines
+    and the reading became a list of files rather than a picture of the fleet.
+    Five lines should teach five different things."""
+    groups = [
+        region(f"p{i}", r=9.0, notable=[["same-rule", "one prolific finding", 9.0]])
+        for i in range(10)
+    ] + [region("elsewhere", r=1.0, notable=[["rare-rule", "the rare one", 1.0]])]
+
+    out = glance(view(groups), "P", now=NOW, limit=5)
+    assert out.count("one prolific finding") == 1, "a repeated finding took extra lines"
+    assert "the rare one" in out, "the rare finding was crowded out by the loud one"
+    assert "+9 more" in out, "the count of suppressed instances must survive"
+
+
+def test_findings_are_ordered_by_weight():
+    groups = [
+        region("quiet", r=1.0, notable=[["a", "minor thing", 1.0]]),
+        region("loud", r=9.0, notable=[["b", "major thing", 9.0]]),
+    ]
+    out = glance(view(groups), "P", now=NOW)
+    assert out.index("major thing") < out.index("minor thing")
 
 
 # --- the guarantees of a payload nobody asked for ---------------------------
@@ -180,8 +205,19 @@ def test_reads_a_real_view_shape():
     """Guards the contract with `write_view`: this layer reads the rendered
     view, so a key rename there must fail here rather than silently at 3am."""
     payload = json.loads(json.dumps(view([
-        region("machine", r=54.2, reflexes=["Y: is 0.3% free"]),
-        region("proj/lib", r=13.0),
+        region("machine", r=54.2, reflexes=["a committed credential"]),
+        region("proj/lib", r=13.0, notable=[["doc_drift", "README behind the code", 5.0]]),
     ])))
     out = glance(payload, "P", now=NOW)
-    assert "Y: is 0.3% free" in out and "proj/lib" in out
+    assert "a committed credential" in out
+    assert "README behind the code" in out and "proj/lib" in out
+
+
+def test_a_region_with_only_ordinary_findings_says_nothing():
+    """`notable` is already filtered by `rules.noteworthy`, so an empty list
+    means everything here was something a file manager or linter would have
+    shown. Spending the reading on that is what taught a reader to skim it."""
+    out = glance(view([region("loudbutdull", r=30.0, notable=[])]), "P", now=NOW)
+    finding_lines = [ln for ln in out.splitlines() if ln.startswith("  ") and "detail:" not in ln]
+    assert finding_lines == [], f"reported something it should have withheld: {finding_lines}"
+    assert "BRIEF.txt" in out, "the escalation path must survive a quiet reading"

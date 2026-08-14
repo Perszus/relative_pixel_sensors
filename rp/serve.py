@@ -73,13 +73,22 @@ def glance(view: dict, path: str, now: float | None = None,
       `stale_after` the age stops being a footnote and becomes the message.
     * Reflexes, in full. The nociceptor tier is the one thing that cannot wait
       for the reader to go looking, so it is never summarised or truncated.
-    * Where pressure is sitting with nobody on it -- names only. Names are what
-      a reader needs to decide where to point; magnitudes here would invite
-      acting on a number that has no context attached yet, which is what the
-      brief exists to supply.
+    * **Findings no ordinary tool would have surfaced**, in the words they
+      carry -- what is accelerating, what has drifted apart, what nothing has
+      vouched for since it changed.
 
-    Everything else is deliberately withheld behind a pointer. The purpose is
-    to make the next question cheap, not to answer it.
+    That last point is the whole justification for the instrument, and it was
+    got wrong at first. This layer originally led with the loudest regions by
+    magnitude, which put a chronically full disk at the top of every reading.
+    Free space is one click away in any file manager; surfacing it spent the
+    reader's only guaranteed attention on something they could already see,
+    and taught them to skim past the part they could not. `rules.noteworthy`
+    draws the line, and it is a written-down judgement rather than a
+    derivation, so it can be argued with.
+
+    Names alone are not enough either. "region X is loud" still leaves the
+    reader to go and find out what that means, which is the expensive step;
+    the words are what make it oversight rather than a pointer to work.
 
     ASCII only, unlike every other layer here. This is the one output that gets
     piped through whatever shell a host happens to invoke a hook with, and the
@@ -112,22 +121,52 @@ def glance(view: dict, path: str, now: float | None = None,
         for words in g.get("reflexes") or ():
             out.append(f"  !! {g['name']}: {words}")
 
-    # Pressure with no activity beside it. The same "damaged and abandoned"
-    # quadrant the brief leads with, minus every number.
-    stalled = sorted(
-        (g for g in groups if g["rgb"][0] >= 2.0 and g["rgb"][2] < 1.0),
-        key=lambda g: -g["rgb"][0],
-    )
-    if stalled:
-        names = ", ".join(g["name"] for g in stalled[:limit])
-        more = f" (+{len(stalled) - limit} more)" if len(stalled) > limit else ""
-        out.append(f"  stalled - pressure nobody is on: {names}{more}")
+    # The instrument's actual output: findings that required history,
+    # cross-project correlation, or a comparison against the fleet's own
+    # norms. One line each, strongest first, with the words.
+    findings = []
+    for g in groups:
+        for row in g.get("notable") or ():
+            if not isinstance(row, list) or len(row) < 3:
+                continue
+            rule, words, value = row[0], row[1], row[2]
+            findings.append((float(value or 0.0), str(rule), g["name"], str(words)))
+    findings.sort(key=lambda f: -f[0])
+
+    # One line per *kind* of finding, strongest instance first.
+    #
+    # Deduplicating by region was not enough: one prolific sensor took eight
+    # of fourteen lines and the reading became a list of files rather than a
+    # picture of the fleet. A reader given five lines should learn five
+    # different things, so the second instance of a finding they have already
+    # been told about is worth less than the first instance of one they have
+    # not. The count carries the rest.
+    kinds: dict[str, tuple[str, str, int]] = {}
+    for _, rule, region, words in findings:
+        if rule in kinds:
+            first_region, first_words, n = kinds[rule]
+            kinds[rule] = (first_region, first_words, n + 1)
+        else:
+            kinds[rule] = (region, words, 1)
+
+    for rule, (region, words, n) in list(kinds.items())[:limit]:
+        elsewhere = f" +{n - 1} more" if n > 1 else ""
+        out.append(f"  {region}: {words}{elsewhere}")
+    if len(kinds) > limit:
+        out.append(f"  ... {len(kinds) - limit} other kinds of finding")
 
     out.append(f"  detail: {path}\\BRIEF.txt | explain.py <rule> | ruleset.py --live")
-    # Enforced rather than assumed: the reflex words above are rule-supplied
-    # text, so keeping this layer ASCII cannot be a convention the rule table
-    # is trusted to follow.
-    return "\n".join(out).encode("ascii", "replace").decode("ascii")
+    # Enforced rather than assumed: the words above are rule-supplied text, so
+    # keeping this layer ASCII cannot be a convention the rule table is
+    # trusted to follow. Transliterate the punctuation that actually occurs
+    # before falling back to `replace`, or the em-dashes the rules are written
+    # with all arrive as question marks and the reading looks corrupted.
+    text = "\n".join(out)
+    for src, dst in (("—", "-"), ("–", "-"), ("·", "|"),
+                     ("’", "'"), ("‘", "'"), ("“", '"'),
+                     ("”", '"'), ("…", "...")):
+        text = text.replace(src, dst)
+    return text.encode("ascii", "replace").decode("ascii")
 
 
 def _ago(seconds: float) -> str:

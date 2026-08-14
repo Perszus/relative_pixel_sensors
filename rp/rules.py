@@ -87,6 +87,39 @@ def recognize(root: str) -> set[str]:
 # ---------------------------------------------------------------------- rules
 
 
+# Findings an ordinary tool already shows you.
+#
+# The instrument's value is not that it can see these -- a file manager, a
+# linter and Task Manager between them see all of it -- but that it can see
+# what none of them can: what is *accelerating*, what has *drifted apart*,
+# what nothing has *vouched for* since it changed. Those need history,
+# cross-project correlation, or a comparison against the fleet's own norms,
+# and no single-purpose tool holds enough context to notice them.
+#
+# Everything listed here still contributes to the field. It is simply not what
+# gets pushed at a reader unasked, because a reader who wanted it would have
+# looked. Membership is a judgement, so it is written down where it can be
+# argued with rather than inferred from a probe's implementation.
+VISIBLE_ELSEWHERE = frozenset({
+    # One click away in any file manager or Task Manager.
+    "cache-large", "services-down", "scheduled-tasks-failing", "vram-pressure",
+    "memory-pressure", "commit-pressure", "pending-reboot", "long-uptime",
+    "models-resident",
+    # A linter says all of this, in the editor, while you type.
+    "long-functions", "very-long-functions", "deep-nesting", "broad-except",
+    "rust-unwrap", "rust-panic", "todo", "debt-markers", "dart-analysis",
+    # Visible by looking at the file listing.
+    "readme", "licence", "docs-dir", "gitignore", "giants", "heavy_files",
+    "oversized-blobs", "no-ci", "ci-configured", "has-tests",
+})
+
+
+def noteworthy(rule_id: str) -> bool:
+    """Is this a finding no ordinary tool would have surfaced?"""
+    # Disk rules are synthesised per volume, so they cannot be named literally.
+    return not (rule_id.startswith("disk-") or rule_id in VISIBLE_ELSEWHERE)
+
+
 @dataclass(frozen=True)
 class Rule:
     """One declarative sensor.
@@ -388,22 +421,30 @@ def machine() -> list[Finding]:
     def say(rule: str, weight: float, words: str, reflex: bool = False) -> None:
         out.append(Finding(rule, "machine", "machine", "R", weight, words, reflex))
 
-    # A volume this close to full stops being a gradient and becomes an event:
-    # writes start failing, and nobody weighs that against a long function.
-    CRITICAL_FREE_PCT = 3.0
-
     # --- storage. Every fixed volume, not a hardcoded pair.
+    #
+    # Deliberately NOT a reflex, whatever the number.
+    #
+    # A full disk is a *chronic condition*, not an event. This machine has had
+    # a volume under 3% free for months, so putting it in the tier reserved for
+    # "act before reading further" meant the tier was never empty -- and a
+    # reflex that always fires is one a reader learns to scroll past, which
+    # then costs them the reflex that mattered. Measured, in this repo's own
+    # session log: the banner was shown three times and ignored three times.
+    #
+    # It is also the wrong *kind* of fact for this instrument. Free space is
+    # one click away in any file manager. The field earns its place on things
+    # no ordinary tool will tell you -- what is accelerating, what is drifting
+    # apart, what nothing has vouched for since it changed. Weighted low for
+    # the same reason.
     for letter in string.ascii_uppercase:
         root = f"{letter}:\\"
         if not os.path.isdir(root):
             continue
         free = disk_free_pct("", letter)
         if free < 12.0:
-            # Steep: 11% free is a note and 1% free is an emergency, and a
-            # linear scale reports them as nearly the same thing.
-            say(f"disk-{letter.lower()}-low", min((12.0 - free) ** 2 / 5.0, 24.0),
-                f"{letter}: is {free:.1f}% free",
-                reflex=free < CRITICAL_FREE_PCT)
+            say(f"disk-{letter.lower()}-low", min((12.0 - free) ** 2 / 40.0, 3.0),
+                f"{letter}: is {free:.1f}% free")
 
     for label, gb in ambient.largest_caches(ambient.KNOWN_CACHES, 20.0):
         say("cache-large", min(gb / 20.0, 6.0),

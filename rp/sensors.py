@@ -28,6 +28,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from . import probes
+
 # --- how loudly each sensor speaks ------------------------------------------
 W_TODO = 0.5          # per debt marker
 W_FIX = 1.0           # per file touched by a repair commit
@@ -488,6 +490,17 @@ def secrets(repo: str, router) -> dict:
             continue
         m = _SECRET_RE.search(line)
         if not m:
+            continue
+        # Honour the same suppression marker the declarative rules use.
+        #
+        # This sensor and the `secret-literal` rule detect the same thing by
+        # two code paths, and only one of them was checking. The result was
+        # this repo's own test fixture -- a deliberately fake credential,
+        # already marked -- reported as a committed secret on every single
+        # pass, which is precisely how a detector teaches a reader to stop
+        # believing it. Imported rather than re-spelled so the two paths
+        # cannot disagree again.
+        if probes.ALLOW_MARKER in line:
             continue
         value = m.group(2)
         if _NOT_A_SECRET.match(value) or _entropy(value) < 3.2:

@@ -596,6 +596,42 @@ def _still_there(region: str, key: str, live: dict[str, str]) -> bool:
                           else os.path.join(root, key))
 
 
+@lru_cache(maxsize=1)
+def _descriptions() -> dict:
+    """Every finding id to the words it should be read by.
+
+    Rules carry `says`; the hand-written sensors carry `doc`. Both are
+    written for a reader, which is the point -- see `_describe`.
+    """
+    out = {r.id: r.says for r in rules.RULES}
+    for spec in REGISTRY:
+        out.setdefault(spec.name, spec.doc)
+    return out
+
+
+def _describe(source: str, channel) -> str:
+    """The words a finding should be read by.
+
+    The rule's own description wins over the level key. Level keys are
+    per-subject -- usually a filename -- and a filename is not a finding: a
+    reader shown `calendar_database_service.dart` still has to go and discover
+    what is wrong with it, which is exactly the expensive step this layer
+    exists to skip. The key is appended as detail, never used alone.
+    """
+    rule_id = source.replace("rule:", "")
+    said = _descriptions().get(rule_id)
+    key = next(iter(channel.level_keys.get(source, {})), "")
+    if said:
+        # Sensor docs are two sentences: the finding, then commentary.
+        said = said.rstrip(".").split(". ")[0]
+        # The key is worth appending only when it names a *subject* the
+        # description does not -- a file, usually. For rule findings the key
+        # is the description itself, and repeating it reads as a stutter.
+        subject = key if key and key != said and ("/" in key or "." in key) else ""
+        return f"{said} ({subject})" if subject else said
+    return f"{rule_id}: {key}" if key else rule_id
+
+
 def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
                live: dict[str, str] | None = None,
                shapes: dict | None = None) -> None:
@@ -660,6 +696,20 @@ def write_view(field: Field, path: str, meta: dict, sizes: dict | None = None,
                 next(iter(r.level_keys.get(s, {})), s.replace("rule:", ""))
                 for s in sorted(r.standing_by_source())
                 if s in set((shapes or {}).get("reflex_sources", ()))
+            ],
+            # Findings no ordinary tool would have surfaced, in the words they
+            # carry. A magnitude says a region is loud; only the words say
+            # what it is, and "loud" is not oversight -- a reader still has to
+            # go and look. These are what the orientation layer leads with, so
+            # the expensive question is answered before it is asked.
+            "notable": [
+                [
+                    s.replace("rule:", ""),
+                    _describe(s, r),
+                    round(r.standing_by_source().get(s, 0.0), 2),
+                ]
+                for s in sorted(r.standing_by_source())
+                if rules.noteworthy(s.replace("rule:", ""))
             ],
         }
         if name in meta:

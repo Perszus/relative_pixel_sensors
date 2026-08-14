@@ -69,10 +69,42 @@ def test_the_section_is_absent_when_nothing_fires():
     assert serve._reflexes([{"name": "p", "sources": {}, "keys": {}}], set()) == []
 
 
-def test_only_a_genuinely_critical_volume_arcs():
-    """Four volumes were low; one was at 0.3%. A gradient of low disks is a
-    gradient — running out is an event."""
+def test_a_full_disk_never_arcs():
+    """Reversed deliberately. This used to assert that a volume under 3% free
+    *was* a reflex.
+
+    It is not. A full disk is a chronic condition, not an event: this machine
+    held a volume at 0.3% for months, so the tier reserved for "act before
+    reading further" was never once empty. Measured consequence, in this
+    repo's own session log — the banner was shown three times and ignored
+    three times, which is what a permanently-lit warning light trains a reader
+    to do, and it costs them the reflex that mattered.
+
+    Free space is also one click away in any file manager. The instrument
+    earns its keep on what no ordinary tool reports.
+    """
     import inspect
     src = inspect.getsource(rules.machine)
-    assert "CRITICAL_FREE_PCT" in src
-    assert "reflex=free < CRITICAL_FREE_PCT" in src
+    assert "reflex=" not in src, "a machine-level condition must not arc at the spine"
+
+
+def test_reflexes_are_things_no_other_tool_would_have_told_you():
+    """The tier and `noteworthy` have to agree. A reflex a file manager would
+    have shown is not an emergency, it is a notification."""
+    for rule_id in rules.reflexes():
+        assert rules.noteworthy(rule_id), f"{rule_id} is visible elsewhere"
+
+
+def test_ordinary_findings_are_kept_out_of_the_pushed_reading():
+    for ordinary in ("long-functions", "readme", "no-ci", "debt-markers",
+                     "cache-large", "disk-c-low"):
+        assert not rules.noteworthy(ordinary), ordinary
+
+
+def test_the_findings_that_justify_the_instrument_are_kept_in():
+    """History, cross-project correlation, fleet-derived norms. None of these
+    are visible from any single-purpose tool."""
+    for earned in ("churn-accelerating", "repair-heavy", "hotspots",
+                   "duplicate-source", "lock_drift", "doc_drift",
+                   "stale-binaries", "unreviewed"):
+        assert rules.noteworthy(earned), earned
